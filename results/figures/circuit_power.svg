@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="440" viewBox="0 0 1100 440">
+  <!-- Inverting buck-boost power stage, paper parameters -->
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#222"/>
+    </marker>
+  </defs>
+
+  <!-- ================= top rail / input source ================= -->
+  <!-- source circle -->
+  <circle cx="90" cy="120" r="34" fill="#fff" stroke="#222" stroke-width="2.5"/>
+  <text x="90" y="36" font-family="Times New Roman, serif" font-size="20" text-anchor="middle" fill="#222" font-style="italic">V<tspan dy="5" font-size="14" baseline-shift="super">in</tspan></text>
+  <text x="90" y="56" font-family="Times New Roman, serif" font-size="15" text-anchor="middle" fill="#222">+12 V</text>
+  <text x="74" y="126" font-family="Times New Roman, serif" font-size="18" fill="#222">+</text>
+  <text x="104" y="140" font-family="Times New Roman, serif" font-size="18" fill="#222">−</text>
+  <!-- source top lead -->
+  <line x1="90" y1="86" x2="90" y2="60" stroke="#222" stroke-width="2.5"/>
+  <line x1="90" y1="60" x2="200" y2="60" stroke="#222" stroke-width="2.5"/>
+  <!-- source bottom lead to ground -->
+  <line x1="90" y1="154" x2="90" y2="390" stroke="#222" stroke-width="2.5"/>
+  <line x1="40" y1="390" x2="140" y2="390" stroke="#222" stroke-width="2.5"/>
+
+  <!-- ================= switch Q, fsw = 100 kHz ================= -->
+  <line x1="200" y1="60" x2="200" y2="70" stroke="#222" stroke-width="2.5"/>
+  <!-- switch contacts: fixed lower contact on rail -->
+  <line x1="188" y1="110" x2="212" y2="110" stroke="#222" stroke-width="3"/>
+  <!-- moveable blade (swing) -->
+  <line x1="188" y1="110" x2="212" y2="80" stroke="#222" stroke-width="3"/>
+  <line x1="188" y1="110" x2="201" y2="84" stroke="#222" stroke-width="3"/>
+  <line x1="200" y1="110" x2="200" y2="132" stroke="#222" stroke-width="2.5"/>
+  <text x="255" y="95" font-family="Times New Roman, serif" font-size="19" fill="#222" font-style="italic">Q</text>
+  <text x="255" y="120" font-family="Times New Roman, serif" font-size="15" fill="#666">f<tspan dy="5" font-size="11" baseline-shift="sub">sw</tspan><tspan dy="-5"/> = 100 kHz</text>
+
+  <!-- rail to node A -->
+  <line x1="200" y1="132" x2="200" y2="180" stroke="#222" stroke-width="2.5"/>
+  <!-- node A -->
+  <circle cx="200" cy="180" r="4.5" fill="#222"/>
+  <!-- A to inductor -->
+  <line x1="200" y1="180" x2="330" y2="180" stroke="#222" stroke-width="2.5"/>
+
+  <!-- ================= diode to ground ================= -->
+  <line x1="200" y1="180" x2="200" y2="245" stroke="#222" stroke-width="2.5"/>
+  <!-- diode triangle (anode at node A side, cathode to ground) -->
+  <polygon points="188,245 212,265 188,285" fill="#fff" stroke="#222" stroke-width="2.5"/>
+  <line x1="212" y1="245" x2="212" y2="285" stroke="#222" stroke-width="3"/>
+  <line x1="212" y1="265" x2="222" y2="265" stroke="#222" stroke-width="2.5"/>
+  <line x1="222" y1="260" x2="222" y2="390" stroke="#222" stroke-width="2.5"/>
+  <text x="150" y="272" font-family="Times New Roman, serif" font-size="18" fill="#222" font-style="italic">D</text>
+  <!-- ground symbol -->
+  <line x1="196" y1="390" x2="248" y2="390" stroke="#222" stroke-width="2.5"/>
+  <line x1="204" y1="396" x2="240" y2="396" stroke="#222" stroke-width="2"/>
+  <line x1="212" y1="402" x2="232" y2="402" stroke="#222" stroke-width="1.5"/>
+  <line x1="220" y1="408" x2="224" y2="408" stroke="#222" stroke-width="1"/>
+
+  <!-- ================= inductor L ================= -->
+  <line x1="330" y1="180" x2="356" y2="180" stroke="#222" stroke-width="2.5"/>
+  <!-- coil: 5 semicircle lobes -->
+  <path d="M356,180 a12,12 0 0 1 24,0 a12,12 0 0 1 24,0 a12,12 0 0 1 24,0 a12,12 0 0 1 24,0 a12,12 0 0 1 24,0"
+        fill="none" stroke="#222" stroke-width="2.5"/>
+  <line x1="476" y1="180" x2="520" y2="180" stroke="#222" stroke-width="2.5"/>
+  <text x="408" y="228" font-family="Times New Roman, serif" font-size="19" fill="#222" font-style="italic">L</text>
+  <text x="408" y="250" font-family="Times New Roman, serif" font-size="15" fill="#666">100 µH</text>
+
+  <!-- ================= output node B ================= -->
+  <line x1="520" y1="180" x2="640" y2="180" stroke="#222" stroke-width="2.5"/>
+  <circle cx="640" cy="180" r="4.5" fill="#222"/>
+  <!-- B rail continues to output terminal -->
+  <line x1="640" y1="180" x2="800" y2="180" stroke="#222" stroke-width="2.5"/>
+  <circle cx="800" cy="180" r="4.5" fill="#222"/>
+
+  <!-- ================= capacitor C ================= -->
+  <line x1="640" y1="180" x2="640" y2="258" stroke="#222" stroke-width="2.5"/>
+  <line x1="616" y1="258" x2="664" y2="258" stroke="#222" stroke-width="3.5"/>
+  <line x1="616" y1="268" x2="664" y2="268" stroke="#222" stroke-width="3.5"/>
+  <line x1="640" y1="268" x2="640" y2="390" stroke="#222" stroke-width="2.5"/>
+  <text x="616" y="300" font-family="Times New Roman, serif" font-size="19" fill="#222" font-style="italic">C</text>
+  <text x="716" y="300" font-family="Times New Roman, serif" font-size="15" fill="#666">220 µF</text>
+  <line x1="614" y1="390" x2="666" y2="390" stroke="#222" stroke-width="2.5"/>
+  <line x1="622" y1="396" x2="658" y2="396" stroke="#222" stroke-width="2"/>
+  <line x1="630" y1="402" x2="650" y2="402" stroke="#222" stroke-width="1.5"/>
+
+  <!-- ================= load R ================= -->
+  <line x1="800" y1="180" x2="800" y2="235" stroke="#222" stroke-width="2.5"/>
+  <!-- zigzag -->
+  <polyline points="800,235 776,255 824,275 776,295 824,315 776,335 800,350"
+            fill="none" stroke="#222" stroke-width="2.5"/>
+  <line x1="800" y1="350" x2="800" y2="390" stroke="#222" stroke-width="2.5"/>
+  <text x="836" y="315" font-family="Times New Roman, serif" font-size="19" fill="#222" font-style="italic">R</text>
+  <text x="836" y="340" font-family="Times New Roman, serif" font-size="15" fill="#666">10 Ω</text>
+  <line x1="774" y1="390" x2="826" y2="390" stroke="#222" stroke-width="2.5"/>
+  <line x1="782" y1="396" x2="818" y2="396" stroke="#222" stroke-width="2"/>
+  <line x1="790" y1="402" x2="810" y2="402" stroke="#222" stroke-width="1.5"/>
+
+  <!-- ================= output terminal ================= -->
+  <circle cx="900" cy="180" r="6" fill="#fff" stroke="#222" stroke-width="2.5"/>
+  <line x1="900" y1="180" x2="960" y2="180" stroke="#222" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="1000" y="172" font-family="Times New Roman, serif" font-size="20" fill="#222" font-style="italic">V<tspan dy="6" font-size="14" baseline-shift="super">out</tspan><tspan dy="-6"/></text>
+  <text x="1000" y="196" font-family="Times New Roman, serif" font-size="15" fill="#222">−12 V</text>
+
+  <!-- label: inverting, negative output -->
+  <text x="520" y="120" font-family="Times New Roman, serif" font-size="21" text-anchor="middle" fill="#222" font-style="italic">v<tspan dy="6" font-size="15" baseline-shift="sub">C</tspan><tspan dy="-6"/><tspan dy="-6"/> = −|V<tspan dy="6" font-size="15" baseline-shift="sub">out</tspan><tspan dy="-6"/>|</text>
+
+  <!-- control signal annotation under switch -->
+  <path d="M300,430 L300,60" stroke="#1a66a3" stroke-width="1.2" stroke-dasharray="5,4" fill="none"/>
+  <line x1="200" y1="60" x2="300" y2="60" stroke="#1a66a3" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <text x="315" y="300" font-family="Times New Roman, serif" font-size="15" fill="#1a66a3" transform="rotate(-90 315 300)" text-anchor="middle">d[k]·fsw</text>
+</svg>
