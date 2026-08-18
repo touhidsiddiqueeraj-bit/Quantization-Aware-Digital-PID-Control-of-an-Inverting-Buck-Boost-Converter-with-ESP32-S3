@@ -414,7 +414,7 @@ static void mode_effres() {
     // Real PWM resolution at 100 kHz is capped at 8-bit (Mode H); effective
     // resolution below that is produced by re-quantizing the *commanded* duty
     // (duty rounding) which the LEDC then writes at its native 8-bit wing.
-    const int N = 1200;
+    const int N = 4000;
     extern float g_t[], g_v[], g_d[], g_st[];
     float *t = g_t, *v = g_v, *d = g_d;
     const int AVG = 64;                    // low-noise schedule (~6.8 ms)

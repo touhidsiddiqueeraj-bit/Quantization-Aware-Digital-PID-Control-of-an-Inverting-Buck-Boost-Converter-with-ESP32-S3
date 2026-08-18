@@ -56,3 +56,15 @@
 - ISR-context ADC reads / esp_timer at rate: may need a re-flash cycle.
 - Serial 460800 capture throughput at N=64 schedules.
 - Adaptive gains need retuning; keep fixed-mode gains frozen for clean comparison.
+## Results recap (measured, all captured to results/embedded/*.log)
+- Mode L latency (Esp32-S3 240MHz): ADC raw 60.0 us avg / 148 us max; ADC mV 88.6 us;
+  PID int32 0.858 us; PID float 6.78 us; PWM write 4.2 us. CPU% = 1.3% (int32) / 10.4% (float).
+- Mode R effective resolution (N=64 schedule): IAE flat 6.8-8.3 across 12/10/8/6-bit ADC
+  and 8/6/4-bit PWM -> ADC noise floor (1.6-1.9V pp) masks sim-predicted quantization
+  effects (27-205 mV). KEY negative result: hardware noise floor swamps quantization.
+- Mode S schedule sweep: ripple 4952(avg1)->1481mV(avg64), ss_err <=0.04V retuned;
+  IAE rises with Ts as sim predicts; quantization effects real but noise-masked.
+- Mode X latency injection: IAE 0.136->0.61 (4.5x) as injected delay 0->200us; separates
+  fast-sampling+latency from slow sampling.
+- Mode A adaptive: 87.2% of time slow (91% update reduction), SR=0.84, dither engages on
+  QAI>QH near setpoint, set-point step at 2.5s correctly forces fast; 20 transitions.
