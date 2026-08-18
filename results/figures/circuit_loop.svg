@@ -18,8 +18,8 @@
 
   <!-- Vref in -->
   <line x1="10" y1="60" x2="38" y2="60" stroke="#222" stroke-width="2.5" marker-end="url(#arr)"/>
-  <text x="10" y="44" font-family="Times New Roman, serif" font-size="19" fill="#222" font-style="italic">V<tspan dy="5" font-size="14" baseline-shift="sub">ref</tspan><tspan dy="-5"/></text>
-  <text x="6" y="66" font-family="Times New Roman, serif" font-size="14" fill="#666">−12 V</text>
+  <text x="14" y="42" font-family="Times New Roman, serif" font-size="19" fill="#222" font-style="italic">V<tspan dy="5" font-size="14" baseline-shift="sub">ref</tspan><tspan dy="-5"/></text>
+  <text x="86" y="26" font-family="Times New Roman, serif" font-size="14" fill="#666">−12 V</text>
 
   <!-- error signal out -->
   <line x1="82" y1="60" x2="135" y2="60" stroke="#222" stroke-width="2.5" marker-end="url(#arr)"/>
@@ -30,8 +30,8 @@
   <line x1="150" y1="92" x2="330" y2="92" stroke="#222" stroke-width="2.5"/>
   <line x1="150" y1="61" x2="330" y2="61" stroke="#222" stroke-width="1.2"/>
   <text x="240" y="54" font-family="Times New Roman, serif" font-size="17" text-anchor="middle" fill="#222">velocity-form PID</text>
-  <text x="240" y="70" font-family="Times New Roman, serif" font-size="14" text-anchor="middle" fill="#222">Δd = Kp·Δe + Ki·Ts·e + Kd·Δ²e</text>
-  <text x="240" y="86" font-family="Times New Roman, serif" font-size="14" text-anchor="middle" fill="#666">K=0.05/100/1e−5 frozen</text>
+  <text x="240" y="70" font-family="Times New Roman, serif" font-size="13" text-anchor="middle" fill="#222">Δd = Kp·Δe + Ki·Ts·e + Kd·Δ²e</text>
+  <text x="240" y="84" font-family="Times New Roman, serif" font-size="13" text-anchor="middle" fill="#666">K=0.05/100/1e−5 frozen</text>
 
   <line x1="330" y1="60" x2="380" y2="60" stroke="#222" stroke-width="2.5" marker-end="url(#arr)"/>
   <text x="345" y="80" font-family="Times New Roman, serif" font-size="16" font-style="italic" fill="#222">d[k]</text>
@@ -39,7 +39,7 @@
   <!-- ===== DPWM quantizer ===== -->
   <rect x="392" y="30" width="130" height="62" fill="#eef3fa" stroke="#222" stroke-width="2.5"/>
   <text x="457" y="55" font-family="Times New Roman, serif" font-size="17" text-anchor="middle" fill="#222">DPWM</text>
-  <text x="457" y="75" font-family="Times New Roman, serif" font-size="14" text-anchor="middle" fill="#666">b = 12/10/8/6</text>
+  <text x="457" y="72" font-family="Times New Roman, serif" font-size="13" text-anchor="middle" fill="#666">b = 12/10/8/6</text>
   <line x1="522" y1="60" x2="570" y2="60" stroke="#222" stroke-width="2.5" marker-end="url(#arr)"/>
 
   <!-- ===== plant block ===== -->
@@ -59,7 +59,7 @@
   <!-- ===== ADC quantizer ===== -->
   <rect x="892" y="30" width="130" height="62" fill="#eef3fa" stroke="#222" stroke-width="2.5"/>
   <text x="957" y="55" font-family="Times New Roman, serif" font-size="17" text-anchor="middle" fill="#222">ADC</text>
-  <text x="957" y="75" font-family="Times New Roman, serif" font-size="14" text-anchor="middle" fill="#666">b = 12/10/8/6, FS=24 V</text>
+  <text x="957" y="72" font-family="Times New Roman, serif" font-size="13" text-anchor="middle" fill="#666">b = 12/10/8/6, FS=24 V</text>
   <line x1="1022" y1="60" x2="1068" y2="60" stroke="#222" stroke-width="2.5" marker-end="url(#arr)"/>
 
   <!-- ===== sample & hold / feedback ===== -->
@@ -68,10 +68,11 @@
   <rect x="1112" y="40" width="50" height="40" fill="#fff" stroke="#222" stroke-width="2"/>
   <text x="1137" y="64" font-family="Times New Roman, serif" font-size="14" text-anchor="middle" fill="#222">T<tspan dy="5" font-size="10" baseline-shift="sub">s</tspan><tspan dy="-5"/></text>
   <!-- feedback branch down and back -->
-  <path d="M1180,60 L1180,235 L60,235 L60,82" fill="none" stroke="#1a66a3" stroke-width="2.5"/>
-  <line x1="44" y1="235" x2="60" y2="235" stroke="#1a66a3" stroke-width="2.5" marker-end="url(#arrb)"/>
-  <text x="1090" y="225" font-family="Times New Roman, serif" font-size="17" font-style="italic" fill="#1a66a3">v<tspan dy="4" font-size="13" baseline-shift="sub">meas</tspan><tspan dy="-4"/>[k]</text>
-  <text x="620" y="235" font-family="Times New Roman, serif" font-size="17" font-style="italic" fill="#1a66a3">y[k] = ADC(v<tspan dy="4" font-size="13" baseline-shift="sub">C</tspan><tspan dy="-4"/>), T<tspan dy="4" font-size="13" baseline-shift="sub">s</tspan><tspan dy="-4"/> = 10/20/50 µs</text>
+  <path d="M1180,60 L1180,232 L60,232 L60,82" fill="none" stroke="#1a66a3" stroke-width="2.5"/>
+  <line x1="44" y1="232" x2="60" y2="232" stroke="#1a66a3" stroke-width="2.5" marker-end="url(#arrb)"/>
+  <!-- feedback labels ABOVE the line -->
+  <text x="1090" y="216" font-family="Times New Roman, serif" font-size="17" font-style="italic" fill="#1a66a3">v<tspan dy="4" font-size="13" baseline-shift="sub">meas</tspan><tspan dy="-4"/>[k]</text>
+  <text x="620" y="216" font-family="Times New Roman, serif" font-size="17" font-style="italic" fill="#1a66a3">y[k] = ADC(v<tspan dy="4" font-size="13" baseline-shift="sub">C</tspan><tspan dy="-4"/>), T<tspan dy="4" font-size="13" baseline-shift="sub">s</tspan><tspan dy="-4"/> = 10/20/50 µs</text>
 
   <!-- quantization annotation -->
   <text x="957" y="125" font-family="Times New Roman, serif" font-size="14" text-anchor="middle" fill="#666">mid-tread; V<tspan dy="4" font-size="11" baseline-shift="sub">ref</tspan><tspan dy="-4"/> = −FS/2 exact code</text>

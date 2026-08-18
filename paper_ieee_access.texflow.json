@@ -1,1031 +1,1035 @@
 {
-  "_type": "Document",
-  "metadata": {
-    "_type": "Metadata",
-    "title": "Quantization-Aware Digital PID Control of an Inverting Buck\u2013Boost Converter with ESP32-S3: Measured Latency, Effective-Resolution, and Adaptive Update Management",
-    "author": "Syeda Salsabil Islam Ariya and Jasimul Islam Chowdhury and Hussain Touhid Siddiquee",
-    "date": "\\today",
-    "abstract": "Digital control of switching power converters is shaped by three implementation-quantized quantities: the ADC resolution of the sensed output, the DPWM resolution of the commanded duty, and the sampling period at which controller and power stage are synchronized. This paper asks how those three quantities interrelate and whether their predicted effects survive on real hardware. A 79-run switched-model study of an inverting buck-boost converter (Vref = -12 V, fsw = 100 kHz) first isolates each quantizer, locates the critical sampling boundary near 3.5-4x Tsw, and shows the three stages interact super-additively. The same controller is then ported to an ESP32-S3 closed-loop platform whose loop is bound by the on-chip ADC: the raw read takes 60 us, so the fastest achievable loop is about 6x Tsw and useful oversampled loops reach up to nearly 700x Tsw, placing the hardware inside the simulation's predicted unstable regime. Measured latency decomposes into T_ADC = 60 us, T_PID = 0.86 us (int32), and T_PWM = 4.2 us; CPU utilization is 1.3%. An effective-resolution sweep shows the 1.6-1.9 V acquisition noise floor masks the quantization effects the simulation predicts at 27-205 mV. A lightweight quantization-aware adaptive controller switches between achievable schedules by a measured error/ripple indicator and activates duty dithering with hysteresis only near the setpoint, reducing controller-update frequency by roughly 84% while holding the mean steady-state error within +/-20 mV. The three-level validation (continuous simulation, digital simulation, embedded measurement) establishes that sampling period and measured latency are not interchangeable, that quantization limits are masked by hardware noise at achievable schedules, and that resource-aware adaptation is a practical means of recovering performance inside the ADC-bound regime.",
-    "keywords": [
-      "digital PID control",
-      "quantization",
-      "buck-boost converter",
-      "ESP32-S3",
-      "adaptive sampling",
-      "measurement latency"
-    ],
-    "affiliations": []
-  },
-  "layout": {
-    "_type": "Layout",
-    "document_class": "ieee-access",
-    "columns": 2,
-    "font_size": "12pt",
-    "paper_size": "a4paper",
-    "margins": {
-      "_type": "Margins",
-      "top": "1in",
-      "bottom": "1in",
-      "left": "1in",
-      "right": "1in"
-    },
-    "toc": false,
-    "lof": false,
-    "lot": false,
-    "section_break": "",
-    "styles": []
-  },
-  "content": [
-    {
-      "_type": "Section",
-      "title": "Introduction",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Paragraph",
-          "text": "Digital control loops are now standard in switching power converters, driven by programmability, immunity to analog component drift, and integration with digital loads \\cite{maksimovic2004,corradini2015}. The complete digital loop contains two unavoidable quantizers: the analog-to-digital converter (ADC) that samples the output voltage, and the digital pulse-width modulator (DPWM) that resolves the duty ratio. Their resolutions, together with the sampling period of the controller, jointly determine regulation quality. Classic work established that coarse quantization causes steady-state limit cycling and conditions between DPWM and ADC resolution for its elimination \\cite{peterchev2003,peng2007}, while quantization-effect modeling permits quantitative prediction of these oscillations \\cite{maksimovic2007}. Recent work extends the analysis to MHz-range GaN converters using dither and sigma-delta modulation \\cite{alobaidi2025,gonzalez2020} and to design guidelines for two-loop current-mode digital controllers \\cite{gonzalez2020}."
-        },
-        {
-          "_type": "Paragraph",
-          "text": "Digital control relieves the analog constraints of passive compensation, enables programmability and auto-tuning, and integrates naturally with digital loads \\cite{maksimovic2004,corradini2015}. In exchange, the designer accepts three implementation-quantized quantities that an analog loop never sees: the ADC resolution of the measured output, the DPWM resolution of the commanded duty, and the sampling period at which controller and power stage are synchronized."
-        },
-        {
-          "_type": "Paragraph",
-          "text": "The theoretical basis is well established. Peterchev and Sanders derived conditions on ADC/DPWM resolution trade-offs for limit-cycle elimination and introduced digital dither to recover effective DPWM resolution \\cite{peterchev2003}. Peng, Prodi\u0107, Alarc\u00f3n, and Maksimovi\u0107 derived static and dynamic quantization models explaining the origins of limit-cycle oscillations \\cite{peng2007}, and Maksimovi\u0107 and Zane provided the small-signal discrete-time framework used to design digitally controlled converters \\cite{maksimovic2007}. A fuller survey appears in \\cite{liu2009}. On the application side, low-resolution non-uniform ADC quantization has been shown to improve dynamic response \\cite{hu2008}, and the full control loop benefits from predictive structures \\cite{chen2003,bibian2002}."
-        },
-        {
-          "_type": "Paragraph",
-          "text": "Two observations motivate this work. First, most quantization studies isolate a single stage, whereas a practical controller is constrained in all three quantities simultaneously; the interaction between sampling period, ADC word length, and PWM word length is rarely treated as one design problem. Second, the buck-boost converter, whose inverted output and non-minimum phase control path \\cite{yousefzadeh2007} make regulation inherently harder, is underrepresented in the digital-control literature: most buck-boost-specific digital studies consider time-domain or PID structures at a single resolution \\cite{vijayalakshmi2014,viswanatha2020} and do not sweep the full implementation space. The classical converter model itself is textbook material \\cite{erickson2001}."
-        },
-        {
-          "_type": "Paragraph",
-          "text": "The central question of this work is therefore: how do sampling period, ADC quantization, PWM resolution, and real-time computational latency jointly affect the closed-loop performance of an ESP32-S3-controlled inverting buck-boost converter, and can a lightweight quantization-aware adaptive PID maintain acceptable regulation while reducing unnecessary controller-update effort? Answering it requires three levels of validation that earlier studies treat separately: a continuous (analog) baseline, a digital simulation that introduces sampling, ADC and PWM quantization and computational delay, and a closed-loop measurement on an embedded platform. The ESP32-S3 is not merely a device that runs the PID; it is the experimental vehicle for investigating the real-world consequences of digital implementation, exposing quantities a simulator cannot produce directly: the acquisition time of the on-chip ADC, the execution time of the control step, the update latency of the PWM peripheral, and the resulting control-loop latency and CPU utilization."
-        },
-        {
-          "_type": "Paragraph",
-          "text": "This paper reports a simulation-to-hardware investigation of a digitally controlled inverting buck-boost converter under simultaneous quantization of sampling period, ADC resolution, and PWM resolution. Contributions: (1) a 79-run factorial study that separates the individual effect of each quantizer from their combined effect, locates the critical sampling boundary near 3.5-4$\\times T_{sw}$, and quantifies the super-additive interaction between the three stages; (2) an objective worst-case selection made after the sweep, not a priori; (3) the identification of a half-scale ADC coincidence ($V_{ref} = -FS/2$) that masks steady-state error at low ADC resolutions; (4) an ESP32-S3 closed-loop implementation whose control-loop latency is measured and decomposed into ADC acquisition, PID execution, and PWM update; (5) an effective-resolution experiment showing that the measured acquisition noise floor masks the quantization effects the simulation predicts; and (6) a lightweight quantization-aware adaptive PID that switches update effort by a measured period and ripple indicator and validates the predicted performance-versus-resource trade-off with an update-reduction ratio of roughly 84\\%. The novelty lies not in variable-rate sampling or dithering individually, but in their integration into a resource-aware control framework that is characterized, implemented, and experimentally validated on one platform."
-        }
-      ]
-    },
-    {
-      "_type": "Section",
-      "title": "System Model and Digital Control",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Paragraph",
-          "text": "The plant is an ideal inverting buck-boost converter (Fig.~\\ref{fig:ckt}) with input $V_{in}=+12$\\,V, reference $V_{ref}=-12$\\,V, $L=100\\,\\mu$H, $C=220\\,\\mu$F, switching frequency $f_{sw}=100$\\,kHz ($T_{sw}=10\\,\\mu$s), and load $R=10\\,\\Omega$."
-        },
-        {
-          "_type": "Figure",
-          "path": "/home/touhid/Documents/powerpaper/results/figures/circuit_power.png",
-          "caption": "Inverting buck-boost power stage used in the study ($V_{in}=+12$\\,V, $L=100\\,\\mu$H, $C=220\\,\\mu$F, $f_{sw}=100$\\,kHz, $R=10\\,\\Omega$; output $V_{out}\\approx-12$\\,V at $D=0.5$).",
-          "label": "fig:ckt",
-          "width": "0.8\\textwidth",
-          "position": "htbp",
-          "span_columns": false,
-          "ref": ""
-        },
-        {
-          "_type": "Figure",
-          "path": "/home/touhid/Documents/powerpaper/results/figures/circuit_loop.png",
-          "caption": "Digital control loop: velocity-form PID, DPWM and ADC quantizers ($b \\in \\{12,10,8,6\\}$ bit, FS = 24\\,V), and sampling at $T_s = 10/20/50\\,\\mu$s. The reference sits exactly at the half-scale code $V_{ref} = -FS/2$.",
-          "label": "fig:loop",
-          "width": "0.8\\textwidth",
-          "position": "htbp",
-          "span_columns": false,
-          "ref": ""
-        },
-        {
-          "_type": "Paragraph",
-          "text": "During OFF, the inductor current is held at zero when it would otherwise reverse (zero-current boundary), which counts discontinuous-mode (DCM) cycles and keeps the model valid in DCM without clamping the output. Many simplified studies go silent on this point. All reported results are obtained on this switched-state model, not on an averaged approximation, so quantization artifacts (limit cycles, DCM chatter) appear faithfully."
-        },
-        {
-          "_type": "Equation",
-          "tex": "\\text{ON:}\\quad \\frac{di_L}{dt}=\\frac{+V_{in}}{L}, \\quad \\frac{dv_C}{dt}=-\\frac{v_C}{RC}",
-          "numbered": true,
-          "label": ""
-        },
-        {
-          "_type": "Equation",
-          "tex": "\\text{OFF:}\\quad \\frac{di_L}{dt}=\\frac{v_C}{L}, \\quad \\frac{dv_C}{dt}=-\\frac{i_L+v_C/R}{C}",
-          "numbered": true,
-          "label": ""
-        },
-        {
-          "_type": "Section",
-          "title": "Digital Controller and Quantization",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "A velocity-form digital PID with positive gains (Fig.~\\ref{fig:loop}) operates at the sampling period $T_s$:"
-            },
-            {
-              "_type": "Equation",
-              "tex": "d[k] = d[k-1] + K_p\\big(e[k]-e[k-1]\\big) + K_i T_s\\, e[k] + \\frac{K_d}{T_s}\\big(e[k]-2e[k-1]+e[k-2]\\big)",
-              "numbered": true,
-              "label": ""
-            },
-            {
-              "_type": "Paragraph",
-              "text": "with $e[k]=v_{meas}[k]-V_{ref}$, duty saturated to $[0.05,\\,0.95]$, and no separate integrator state (inherent anti-windup). The measurement, duty, and update cadence are each quantized independently:"
-            },
-            {
-              "_type": "ItemList",
-              "items": [
-                {
-                  "_type": "ListItem",
-                  "text": "Sampling: the controller updates every $T_s \\in \\{T_{sw},\\,2T_{sw},\\,5T_{sw}\\}$ (10, 20, 50 $\\mu$s);\\\\ ADC: mid-tread quantizer, full-scale $FS=24$\\,V, 12/10/8/6 bits. Note $V_{ref}=-FS/2$, so the reference is exactly representable at every resolution;\\\\ PWM: duty quantized to $2^b$ levels, $b\\in\\{12,10,8,6\\}$.",
-                  "children": []
-                }
-              ],
-              "ordered": false,
-              "start": 1
-            },
-            {
-              "_type": "Paragraph",
-              "text": "A continuous-ideal baseline recomputes the same PID every $dt$ with no quantization (true analog reference). The frozen controller gains were obtained once, deterministically, before any quantization study: grid search over $K_p\\in\\{0.005,0.01,0.02,0.05\\}$, $K_i\\in\\{20,100,500,2000\\}$, $K_d\\in\\{0,2\\times10^{-6},10^{-5}\\}$ with cost $J=o_v/10+t_s/5\\,\\text{ms}+\\text{IAE}/0.05$ under constraints overshoot $\\le 10\\%$ and $|e_{ss}|\\le 60$\\,mV, re-validated on the switched model: $K_p=0.05$, $K_i=100.0$, $K_d=10^{-5}$. No parameter was touched during the quantization study."
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "_type": "Section",
-      "title": "Simulation Framework",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Paragraph",
-          "text": "The study executes 79 simulations (Table~\\ref{tab:plan}): the continuous baseline, the ideal digital controller ($T_s=T_{sw}$, 16-bit ADC, 16-bit PWM), three sampling-only points, a six-point focused sampling sweep across the critical boundary, four ADC-only, four PWM-only runs, the full $3\\times4\\times4$ factorial sweep (48 runs), six disturbance runs (input step $12\\to9$\\,V and load step $10\\to5\\,\\Omega$, applied at $t=60$\\,ms, on the continuous baseline, the ideal digital controller, and the objectively selected worst configuration), and six operating-point robustness runs ($V_{in}=10,15$\\,V on three configurations)."
-        },
-        {
-          "_type": "Table",
-          "caption": "Study layout (79 simulations).",
-          "label": "tab:plan",
-          "headers": [
-            "Group",
-            "Runs",
-            "T_s",
-            "ADC/PWM"
-          ],
-          "rows": [
-            [
-              "Continuous baseline",
-              "1",
-              "---",
-              "analog"
-            ],
-            [
-              "Ideal digital",
-              "1",
-              "1x",
-              "16/16 bit"
-            ],
-            [
-              "Sampling only",
-              "3",
-              "1/2/5x",
-              "16/16"
-            ],
-            [
-              "Boundary sweep",
-              "6",
-              "1.5-4x",
-              "16/16"
-            ],
-            [
-              "ADC only",
-              "4",
-              "1x",
-              "12/10/8/6, 16"
-            ],
-            [
-              "PWM only",
-              "4",
-              "1x",
-              "16, 12/10/8/6"
-            ],
-            [
-              "Factorial sweep",
-              "48",
-              "all",
-              "all"
-            ],
-            [
-              "Disturbances",
-              "6",
-              "selected",
-              "3 configs"
-            ],
-            [
-              "Op-point robustness",
-              "6",
-              "selected",
-              "3 configs"
-            ]
-          ],
-          "position": "htbp",
-          "booktabs": true,
-          "width": "",
-          "fit": "auto",
-          "span_columns": false,
-          "ref": ""
-        },
-        {
-          "_type": "Paragraph",
-          "text": "Metrics: 2\\% settling time, overshoot, steady-state error, peak-to-peak ripple (limit cycle), IAE, ITAE, and DCM-cycle count. For disturbance runs all metrics are evaluated on the post-step 60\\,ms window and ripple on its final 50\\%. The worst configuration is selected objectively after the sweep, as the run with the largest normalized degradation of steady-state error, IAE, and limit cycle relative to the ideal digital controller. No configuration is pre-declared worst."
-        }
-      ]
-    },
-    {
-      "_type": "Section",
-      "title": "Results",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Section",
-          "title": "Continuous versus Ideal Digital",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "The conversion from analog to ideal digital control already costs measurable quality (Table~\\ref{tab:base}): the 16-bit/one-cycle system settles 36\\% slower (2.66 vs 1.96\\,ms) and shows a 12.76\\,mV steady-state offset and 39.6\\,mV limit cycle against the continuous 0.44\\,mV / 26.7\\,mV. The 12.8\\,mV floor is the quantization-limited operating point for these gains; every further result is expressed relative to it."
-            },
-            {
-              "_type": "Table",
-              "caption": "Continuous baseline vs ideal digital.",
-              "label": "tab:base",
-              "headers": [
-                "",
-                "Continuous",
-                "Ideal digital"
-              ],
-              "rows": [
-                [
-                  "Settling (ms)",
-                  "1.96",
-                  "2.66"
-                ],
-                [
-                  "Overshoot (%)",
-                  "0.07",
-                  "0.02"
-                ],
-                [
-                  "|e_ss| (mV)",
-                  "0.44",
-                  "12.76"
-                ],
-                [
-                  "Limit cycle (mV)",
-                  "26.7",
-                  "39.6"
-                ],
-                [
-                  "IAE",
-                  "0.0058",
-                  "0.0109"
-                ],
-                [
-                  "DCM cycles",
-                  "0",
-                  "0"
-                ]
-              ],
-              "position": "htbp",
-              "booktabs": true,
-              "width": "0.45\\columnwidth",
-              "fit": "auto",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        },
-        {
-          "_type": "Section",
-          "title": "Individual Stage Effects",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "Fig.~\\ref{fig:sampling} isolates the sampling stage at 16-bit resolution and locates the critical boundary. Settling degrades smoothly as $T_s/T_{sw}$ rises from 1 to 3.5 (2.66 to 6.38 ms, all still regulation-valid), then the loop loses regulation outright at $4\\times$: it never settles, the limit cycle jumps to 1.59 V, and 101\\,736 DCM cycles accrue in 60 ms. The practical boundary therefore sits between $3.5\\times$ and $4\\times T_{sw}$ (35--40 $\\mu$s); $T_s = 5T_{sw}$ fails in every configuration, alone or combined."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/results/figures/fig2_sampling.png",
-              "caption": "Sampling-period boundary sweep at 16-bit ADC/PWM: settling time, steady-state error, limit cycle, and IAE versus $T_s/T_{sw}$. Regulation is lost between $3.5\\times$ and $4\\times T_{sw}$.",
-              "label": "fig:sampling",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            },
-            {
-              "_type": "Paragraph",
-              "text": "ADC resolution couples to the reference in a subtle way (Fig.~\\ref{fig:adc}): because $V_{ref}=-FS/2$ is exactly representable, the 8-bit and 6-bit ADCs lock onto the exact code and reduce the measured steady-state error to 0.44\\,mV while masking a worse transient (overshoot rises from 0.06\\% at 12-bit to 0.85\\% at 6-bit; settling from 2.70 to 3.49\\,ms). This is a half-scale coincidence, not an ADC benefit."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/results/figures/fig3_adc.png",
-              "caption": "ADC-resolution effect at $T_s=T_{sw}$ (16-bit PWM): because $V_{ref}=-FS/2$ is an exact code, the 8-bit and 6-bit ADCs lock onto it, hiding steady-state error while worsening the transient (overshoot and settling).",
-              "label": "fig:adc",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            },
-            {
-              "_type": "Paragraph",
-              "text": "PWM resolution below 8 bits dominates the limit cycle (Fig.~\\ref{fig:pwm}): 6-bit PWM adds a 204.8\\,mV ripple versus $\\approx$39.5\\,mV at 12/10/8-bit. Duty quantization is the direct source of steady-state ripple, as predicted by limit-cycle analysis \\cite{peterchev2003,peng2007}; at 6-bit the DPWM step is $2/64=31.25$\\,mV of duty, which maps through the control-to-output gain into the observed 204.8\\,mV ripple. This is precisely the regime addressed by finer DPWM controller implementations \\cite{patella2003,syed2004} and by noise-shaping modulators \\cite{norris2008}."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/results/figures/fig4_pwm.png",
-              "caption": "PWM-resolution effect at $T_s=T_{sw}$ (16-bit ADC): duty quantization below 8 bits is the dominant limit-cycle source, adding a 204.8\\,mV ripple at 6-bit PWM versus $\\approx$39.5\\,mV at 12/10/8-bit.",
-              "label": "fig:pwm",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        },
-        {
-          "_type": "Section",
-          "title": "Combined Sweep and Interactions",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "In the 48-run factorial sweep the worst configuration is $T_s=5T_{sw}$, ADC=8-bit, PWM=12-bit (normalized degradation score 1309.2): settling never completes within 60\\,ms, steady-state error $-13.43$\\,V, limit-cycle amplitude 7.33\\,V, IAE 0.789, 127\\,075 DCM cycles. Fig.~\\ref{fig:perf} classifies every combination against explicit thresholds (settling $\\le 6$\\,ms, $|e_{ss}| \\le 120$\\,mV, limit cycle $\\le 120$\\,mV, overshoot, DCM) into excellent / acceptable / marginal / unusable. Sampled at $T_s = T_{sw}$, 13 of 16 combinations are excellent and the rest acceptable; at $2\\times$ all are acceptable or marginal; at $5\\times$ all 16 are unusable."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/results/figures/fig8_perf_map.png",
-              "caption": "Performance map of the 48-run sweep. Thresholds: excellent ($t_{settle}\\le4$ ms, $|e_{ss}|\\le60$ mV, LC $\\le60$ mV, ov $\\le5\\%$), acceptable ($t_{settle}\\le6$ ms, $|e_{ss}|,\\text{LC}\\le120$ mV), marginal, unusable ($t_{settle}\\ge50$ ms).",
-              "label": "fig:perf",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            },
-            {
-              "_type": "Paragraph",
-              "text": "The worst configuration is far worse than any individual degradation: $-13.43$\\,V versus the $-13.07$\\,V of sampling alone, but with 127\\,075 DCM cycles and a 7.33\\,V limit cycle that the sampling-only run does not exhibit. The super-additivity is quantitative: with $D$ the normalized partial degradation (steady-state error, IAE, and limit cycle relative to the ideal digital controller), the individual terms are $D_{sampling}(5\\times)=1141.6$, $D_{ADC}(8\\text{-bit})=0.6$, and $D_{PWM}(12\\text{-bit})=0.0$; the additive prediction is 1142.2, whereas the measured combined degradation is $D_{total}=1309.2$, an interaction of $+167$ ($+15\\%$). The 8-bit ADC coincidence, harmless alone, converts a slowly sampling loop into deep limit-cycle chatter once the 12-bit PWM pulls the operating point across the coincidence."
-            }
-          ]
-        },
-        {
-          "_type": "Section",
-          "title": "Disturbance Rejection",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "Table~\\ref{tab:dist} summarizes the six disturbance runs (step at $t=60$\\,ms; recovery time $=t_{settle}-60$\\,ms). Both healthy controllers reject input and load steps in under 1.5\\,ms with negligible IAE. The worst configuration never re-regulates within the observation window: it settles into deep DCM chatter with $>$5\\,V of steady-state error and over 160\\,000 DCM cycles per event (Fig.~\\ref{fig:dist})."
-            },
-            {
-              "_type": "Table",
-              "caption": "Disturbance response (step at $t=60$\\,ms).",
-              "label": "tab:dist",
-              "headers": [
-                "Config",
-                "Event",
-                "Recovery",
-                "|e_ss| / IAE"
-              ],
-              "rows": [
-                [
-                  "Continuous",
-                  "Vin step",
-                  "1.43 ms",
-                  "0.0 mV / 0.0014"
-                ],
-                [
-                  "Continuous",
-                  "Load step",
-                  "0.94 ms",
-                  "0.3 mV / 0.0013"
-                ],
-                [
-                  "Ideal dig.",
-                  "Vin step",
-                  "0.92 ms",
-                  "14.9 mV / 0.0017"
-                ],
-                [
-                  "Ideal dig.",
-                  "Load step",
-                  "0.84 ms",
-                  "26.1 mV / 0.0019"
-                ],
-                [
-                  "Worst",
-                  "Vin step",
-                  "never",
-                  "8.9 V / 0.535"
-                ],
-                [
-                  "Worst",
-                  "Load step",
-                  "never",
-                  "5.9 V / 0.353"
-                ]
-              ],
-              "position": "htbp",
-              "booktabs": true,
-              "width": "0.9\\columnwidth",
-              "fit": "auto",
-              "span_columns": false,
-              "ref": ""
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/results/figures/fig7_disturbances.png",
-              "caption": "Disturbance response: 2\\%-settling trajectories for input step $V_{in}:12\\to9$\\,V and load step $R:10\\to5\\,\\Omega$ at $t=60$\\,ms on the continuous baseline, ideal digital controller, and the worst combined configuration (5$\\times$, 8-bit ADC, 12-bit PWM).",
-              "label": "fig:dist",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        },
-        {
-          "_type": "Section",
-          "title": "Operating-Point Robustness",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "The main conclusions are not an artifact of the single nominal point ($V_{in}=12$\\,V, $V_{ref}=-12$\\,V, $R=10\\,\\Omega$). Table~\\ref{tab:op} repeats the ideal, a representative good ($1\\times$, 10-bit, 10-bit), and a representative poor ($2\\times$, 6-bit, 6-bit) configuration at $V_{in}=10$ and 15\\,V with the same frozen gains. Ideal and good configurations retain full regulation (2.5--2.7\\,ms settling, sub-100\\,mV limit cycle) across the input range. The poor configuration holds at $10$ and $12$\\,V but degrades sharply at $V_{in}=15$\\,V. It settles only at the very edge of the 60\\,ms window (59.3\\,ms), with a 561\\,mV limit cycle and 18 DCM excursions. Marginal designs are therefore operating-point sensitive, not merely sampling-sensitive."
-            },
-            {
-              "_type": "Table",
-              "caption": "Operating-point robustness: settling time (ms) / limit cycle (mV) at $V_{in}=10,12,15$\\,V with gains frozen ($V_{ref}=-12$\\,V, $R=10\\,\\Omega$). No asterisk: settles inside 60 ms; * does not settle in the window.",
-              "label": "tab:op",
-              "headers": [
-                "config",
-                "10 V",
-                "12 V",
-                "15 V"
-              ],
-              "rows": [
-                [
-                  "ideal (1\u00d7,16,16)",
-                  "2.74 / 67.9",
-                  "2.66 / 39.6",
-                  "2.55 / 28.9"
-                ],
-                [
-                  "good (1\u00d7,10,10)",
-                  "2.69 / 28.6",
-                  "2.64 / 57.8",
-                  "2.52 / 80.6"
-                ],
-                [
-                  "poor (2\u00d7,6,6)",
-                  "5.40 / 28.9",
-                  "5.11 / 27.7",
-                  "59.3 / 561*"
-                ]
-              ],
-              "position": "htbp",
-              "booktabs": true,
-              "width": "",
-              "fit": "auto",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "_type": "Section",
-      "title": "Conclusion",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Paragraph",
-          "text": "This paper established how sampling period, ADC quantization, PWM resolution, and real-time computational latency jointly shape the closed-loop performance of an ESP32-S3-controlled inverting buck-boost converter. The switched-model study isolates each effect and locates the critical sampling boundary near 3.5-4$\\times T_{sw}$; the embedded implementation then measures what simulation cannot: a 65\\,$\\mu$s control-loop latency dominated by ADC acquisition, 1.3\\% CPU utilization, and an acquisition noise floor that masks the quantization effects the simulation predicts. Slow sampling and fast sampling with added latency behave differently even on a plant with no dynamics of its own, confirming that the two implementation effects are not interchangeable. A lightweight quantization-aware adaptive PID switches between achievable schedules using a measured error/activity indicator with hysteresis, holds steady-state error below 40\\,mV, and cuts controller-update frequency by 84\\%. The contributions are the integration, characterization, and experimental resource-aware validation of these effects on one platform, rather than any single technique in isolation. The on-chip ADC's acquisition time is the binding constraint of this platform; future work with a faster external ADC or a real power stage would place the controller inside the simulated critical region and test directly whether the adaptive framework remains necessary at higher rates."
-        }
-      ]
-    },
-    {
-      "_type": "Section",
-      "title": "Acknowledgment",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Paragraph",
-          "text": "The authors thank Tareq Anwar Shikdar for guidance; no external funding was received."
-        }
-      ]
-    },
-    {
-      "_type": "Section",
-      "title": "Experimental Closed-Loop Platform",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Paragraph",
-          "text": "The closed-loop platform is the ESP32-S3 (240\\,MHz, Arduino core) with a 100\\,kHz LEDC PWM on GPIO2 shorted to ADC1 input GPIO1, so the sensed pin voltage is the duty-scaled rail, mapped into the paper's $V_{ref}=-12$\\,V, FS$=24$\\,V frame by the inverting gain $V_{out} = -V_{pin}\\cdot 24/3.3$. This reproduces the buck-boost sign inversion and places $V_{ref}$ exactly at the half-scale code, at which the paper's ADC coincidence is active. The plant is intentionally not a real power stage: it is an emulated first-order plant whose dynamics are the pin-gain plus the EMA sensor filter, so the platform isolates the digital-implementation effects (sampling, quantization, latency, adaptation) that are the subject of this study. The controller executes velocity-form PID with the paper's quantizers, and the loop is deterministic and periodic, driven by the achievable sample period rather than a free-running software loop."
-        },
-        {
-          "_type": "Section",
-          "title": "Measured Control-Loop Latency",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "Table~\\ref{tab:emb} reports the measured split of the control loop, timed with the CPU cycle counter at 240\\,MHz and illustrated in Fig.~\\ref{fig:lat}. The ADC dominates: the calibrated millivolt read averages $89.1\\,\\mu$s, the raw 12-bit read $60.0\\,\\mu$s, and the fastest single read never completes sooner than $59.5\\,\\mu$s. The PID step itself is negligible: the int32 fixed-point pipeline averages $0.86\\,\\mu$s and the float32 pipeline $6.8\\,\\mu$s, so the controller occupies at most 10.4\\% (float) or 1.3\\% (int32) of the loop budget. The LEDC PWM write costs $4.2\\,\\mu$s. The total per-step control latency is $T_{lat} = T_{ADC} + T_{PID} + T_{PWM} \\approx 65\\,\\mu$s, meaning the fastest periodic loop this platform can sustain is about $6\\times T_{sw}$ (10\\,$\\mu$s switching period), and useful oversampled loops reach several hundred times $T_{sw}$ (up to $\\approx680\\times$ at N=64). The hardware therefore operates entirely in the sampling regime the simulation identifies as unstable or critically degraded; this is the central constraint that motivates the adaptive controller presented in the final subsection."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_latency.png",
-              "caption": "Measured control-loop latency breakdown on the ESP32-S3 (240\\,MHz, Arduino core): ADC acquisition dominates at 60-89\\,$\\mu$s; PID computation is 0.86\\,$\\mu$s (int32) to 6.8\\,$\\mu$s (float32); PWM register write is 4.2\\,$\\mu$s. Log scale.",
-              "label": "fig:lat",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            },
-            {
-              "_type": "Table",
-              "caption": "Measured ESP32-S3 control-loop quantities. ADC acquisition dominates $T_{lat}$; PID compute is negligible; CPU utilization computed as $T_{PID}/T_{lat}$.",
-              "label": "tab:emb",
-              "headers": [],
-              "rows": [
-                [
-                  "Quantity",
-                  "Value"
-                ],
-                [
-                  "T_ADC (raw 12-bit)",
-                  "60.0 $\\mu$s avg / 125.5 $\\mu$s max"
-                ],
-                [
-                  "T_ADC (calibrated mV)",
-                  "89.1 $\\mu$s avg"
-                ],
-                [
-                  "T_PID (int32 fixed)",
-                  "0.86 $\\mu$s avg"
-                ],
-                [
-                  "T_PID (float32)",
-                  "6.8 $\\mu$s avg"
-                ],
-                [
-                  "T_PWM (LEDC write)",
-                  "4.2 $\\mu$s avg"
-                ],
-                [
-                  "T_lat = T_ADC+T_PID+T_PWM",
-                  "$\\approx$65 $\\mu$s"
-                ],
-                [
-                  "CPU utilization",
-                  "1.3% (int32) / 10.4% (float)"
-                ],
-                [
-                  "Fastest periodic loop",
-                  "$\\approx$6 $\\times$ Tsw"
-                ],
-                [
-                  "Oversampled loop (N=64)",
-                  "$\\approx$680 $\\times$ Tsw"
-                ]
-              ],
-              "position": "htbp",
-              "booktabs": true,
-              "width": "",
-              "fit": "auto",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        },
-        {
-          "_type": "Section",
-          "title": "Effective-Resolution Sweep",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "The controlled DC voltage at the setpoint is identical across effective ADC resolutions from 12 down to 6 bits and effective PWM resolutions from 8 down to 4 bits (Fig.~\\ref{fig:effres}): the closed loop holds the mean within $\\pm$18\\,mV in every cell, and the per-cell IAE variation (6.8-8.3) is within the run-to-run noise of the platform. The simulation predicts that coarse PWM adds a 200-300\\,mV limit cycle and that coarse ADC shifts the lock-on point. On the ESP32-S3 these effects do not appear, because the acquisition noise floor is far larger: the averaged read at this schedule carries $\\approx$1.5\\,V rms in the output frame (measured $\\sigma_N \\approx 1.65/\\sqrt{N}$\\,V at the pin, $\\times 24/3.3$ into the output frame, giving $\\approx$1.5\\,V at N=64), and the closed-loop ripple remains at 1.6-1.9\\,V peak-to-peak regardless of resolution. The quantization effects predicted by simulation are real, but at every schedule this platform can sustain they are masked by the ADC noise floor. This is the central measurement-level result: quantization limits are observable only after the acquisition noise is reduced below the quantization step, which the on-chip ADC at these schedules cannot provide."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_effres.png",
-              "caption": "Effective-resolution sweep at the N=64 achievable schedule. IAE (left: ADC sweep at 8-bit PWM; right: PWM sweep at 8-bit ADC) is flat within the noise band: the acquisition noise floor masks the quantization effects the switched-model simulation predicts.",
-              "label": "fig:effres",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        },
-        {
-          "_type": "Section",
-          "title": "Achievable-Schedule Sweep and Latency Injection",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "The measured achievable periods form a ladder from $73\\,\\mu$s (raw single read, N=1) to $6.84\\,$ms (N=64 averaged reads). Fig.~\\ref{fig:sched} sweeps all four rungs with the frozen paper gains and with the bandwidth-matched retuned gains ($k_p=0.02$, $k_i$ scaled so $k_i T_s = 3.4\\times10^{-3}$). The retuned loop holds steady-state error below 40\\,mV on every rung. The observable that changes with schedule is the ripple: it falls from 4.9\\,V peak-to-peak at N=1 to 1.5\\,V at N=64, tracking the measured $\\sigma\\propto 1/\\sqrt{N}$ noise floor rather than any quantization effect. Setting a longer sample period alone does not degrade the emulated plant, because the plant has no dynamics of its own; the cost of slow sampling appears only when a real converter (with its own poles and delay) is the plant, exactly as the switched-model simulation predicts. Separately, injecting an additional computational delay of 0-200\\,$\\mu$s at the fast schedule raises the effective period from 73 to 274\\,$\\mu$s and grows the IAE by a factor of 4.5 (Fig.~\\ref{fig:latinj}). Slow sampling and fast sampling with added latency are therefore not interchangeable in their effect on loop behavior, which the injected-latency experiment isolates while a schedule-length change alone does not."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_sched.png",
-              "caption": "Achievable-schedule sweep (top) and injected-latency experiment (bottom) on the ESP32-S3. Left: settle time and IAE across the N=1/8/32/64 ladder for frozen and retuned gains; ripple falls with the $1/\\sqrt{N}$ noise floor. Right: injecting 0-200\\,$\\mu$s computational delay at the fast schedule grows IAE by 4.5$\\times$, separating slow sampling from fast-sampling-plus-latency.",
-              "label": "fig:sched",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_latinj.png",
-              "caption": "Injected computational latency at the fast schedule: effective period grows 73 to 274\\,$\\mu$s and IAE by 4.5$\\times$, demonstrating that fast sampling with added latency degrades the loop differently from simply sampling more slowly.",
-              "label": "fig:latinj",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        },
-        {
-          "_type": "Section",
-          "title": "Adaptive Update Management",
-          "level": 2,
-          "label": "",
-          "page_break": "",
-          "content": [
-            {
-              "_type": "Paragraph",
-              "text": "Because latency is dominated by the ADC rather than the arithmetic, the controller's cost is best managed by reducing how often the hardware is asked to sample-and-compute. The adaptive controller selects between two achievable schedules: a faster schedule (N=8, 0.86\\,ms period) and a slower one (N=64, 6.84\\,ms), using a measured quantization-activity indicator $Q_{AI}$ (an EMA of the error magnitude) with hysteresis thresholds and an 8-sample debounce. It leaves the fast schedule only when the smoothed error has settled below the noise-aware band, returns to fast mode when the error exceeds a large threshold, and activates a $\\pm$1-LSB duty dither only when the loop is settled but $Q_{AI}$ stays elevated (a limit-cycle hint), with its own hysteretic threshold to avoid toggling. Fig.~\\ref{fig:adaptive} shows the run: startup transient and a set-point step from $-12$ to $-6$\\,V at 2.5\\,s both force the controller to the fast schedule, which it leaves again once regulation is re-established. Over the 6\\,s run the controller spends 3.8\\% of the time fast, 87.2\\% slow, and 9.0\\% dithering, giving an update reduction ratio $S_R = 1 - f_{avg}/f_{fast}$ of 0.84 while holding steady-state error within the same $\\pm$40\\,mV band as the fixed-rate loop. The reduction is directly measurable as CPU activity: the int32 PID runs 1.3\\% of the loop budget at fast rate and proportionally less in slow mode. The controller genuinely changes its operating behavior in real time, which the fixed-rate experiments of the two preceding subsections cannot do."
-            },
-            {
-              "_type": "Figure",
-              "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_adaptive.png",
-              "caption": "Adaptive schedule+dithering run on the ESP32-S3 (N=8 fast, N=64 slow). Top: sensed output with a set-point step from $-12$ to $-6$\\,V at 2.5\\,s (dashed). Middle: duty. Bottom: selected mode. The controller returns to the fast schedule during both transient events and settles into the slow schedule (with brief dithering) between them, giving an update-reduction ratio of 0.84.",
-              "label": "fig:adaptive",
-              "width": "0.8\\textwidth",
-              "position": "htbp",
-              "span_columns": false,
-              "ref": ""
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "_type": "Section",
-      "title": "Discussion",
-      "level": 1,
-      "label": "",
-      "page_break": "",
-      "content": [
-        {
-          "_type": "Paragraph",
-          "text": "Taken together, the three levels form a consistent picture. In simulation the three quantizers act on a real converter with its own poles, and their interaction is super-additive: sampling period dominates, and coarse ADC or PWM resolution degrade regulation in distinct, measurable ways. On the ESP32-S3 the same controller faces a different bottleneck: the on-chip ADC's 60-89\\,$\\mu$s acquisition time forces every achievable schedule into the sampling regime the simulation deems unstable for a 100\\,kHz converter, and the acquisition noise floor swamps the quantization effects the simulation predicts. The compute is almost free (1.3\\% CPU); the cost of digital control lives in acquisition and update, not arithmetic. That asymmetry is why the quantization-aware adaptive controller is not an enhancement but a necessity: by spending sampling effort only when the error or the activity indicator demands it, it recovers regulation quality at 16\\% of the update frequency, and its measured latency, occupancy, and update-reduction figures are the quantities an otherwise purely simulative study could only assume. The negative results are as informative as the positive ones: the hardware cannot reach the 3.5-4$\\times T_{sw}$ boundary, and the effective-resolution sweep shows that quantization limits become visible only below a noise floor this ADC cannot reach at a useful schedule."
-        }
-      ]
-    }
+ "_type": "Document",
+ "metadata": {
+  "_type": "Metadata",
+  "title": "Quantization-Aware Digital PID Control of an Inverting Buck\u2013Boost Converter with ESP32-S3: Measured Latency, Effective-Resolution, and Adaptive Update Management",
+  "author": "Hussain Touhid Siddiquee and Syeda Salsabil Islam Ariya and Jasimul Islam Chowdhury",
+  "date": "\\today",
+  "abstract": "Digital control of switching power converters is shaped by three implementation-quantized quantities: the ADC resolution of the sensed output, the DPWM resolution of the commanded duty, and the sampling period at which controller and power stage are synchronized. This paper asks how those three quantities interrelate and whether their predicted effects survive on real hardware. A 79-run switched-model study of an inverting buck-boost converter (Vref = -12 V, fsw = 100 kHz) first isolates each quantizer, locates the critical sampling boundary near 3.5-4x Tsw, and shows the three stages interact super-additively. The same controller is then ported to an ESP32-S3 closed-loop platform whose loop is bound by the on-chip ADC: the raw read takes 60 us, so the fastest achievable loop is about 6x Tsw and useful oversampled loops reach up to nearly 700x Tsw, placing the hardware inside the simulation's predicted unstable regime. Measured latency decomposes into T_ADC = 60 us, T_PID = 0.86 us (int32), and T_PWM = 4.2 us; CPU utilization is 1.3%. An effective-resolution sweep shows the 1.6-1.9 V acquisition noise floor masks the quantization effects the simulation predicts at 27-205 mV. A lightweight quantization-aware adaptive controller switches between achievable schedules by a measured error/ripple indicator and activates duty dithering with hysteresis only near the setpoint, reducing controller-update frequency by roughly 84% while holding the mean steady-state error within +/-20 mV. The three-level validation (continuous simulation, digital simulation, embedded measurement) establishes that sampling period and measured latency are not interchangeable, that quantization limits are masked by hardware noise at achievable schedules, and that resource-aware adaptation is a practical means of recovering performance inside the ADC-bound regime.",
+  "keywords": [
+   "digital PID control",
+   "quantization",
+   "buck-boost converter",
+   "ESP32-S3",
+   "adaptive sampling",
+   "measurement latency"
   ],
-  "bibliography": {
-    "_type": "Bibliography",
-    "style": "authoryear",
-    "entries": [
-      {
-        "_type": "BibEntry",
-        "key": "corradini2015",
-        "entry_type": "book",
-        "fields": {
-          "author": "L. Corradini and D. Maksimovic and P. Mattavelli and R. Zane",
-          "title": "Digital Control of High-Frequency Switched-Mode Power Converters",
-          "publisher": "Wiley-IEEE Press",
-          "year": "2015",
-          "note": "ISBN 978-1-118-93510-1"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "peterchev2003",
-        "entry_type": "article",
-        "fields": {
-          "author": "A. V. Peterchev and S. R. Sanders",
-          "title": "Quantization Resolution and Limit Cycling in Digitally Controlled {PWM} Converters",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "18",
-          "number": "1",
-          "pages": "301--308",
-          "year": "2003",
-          "doi": "10.1109/TPEL.2002.807092"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "peng2007",
-        "entry_type": "article",
-        "fields": {
-          "author": "H. Peng and D. Prodi{\\'c} and A. Alarcon and D. Maksimovic",
-          "title": "Modeling of Quantization Effects in Digitally Controlled {DC-DC} Converters",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "22",
-          "number": "1",
-          "pages": "208--215",
-          "year": "2007",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/1354763}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "maksimovic2007",
-        "entry_type": "article",
-        "fields": {
-          "author": "D. Maksimovic and R. Zane",
-          "title": "Small-Signal Discrete-Time Modeling of Digitally Controlled {PWM} Converters",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "22",
-          "number": "6",
-          "pages": "2552--2556",
-          "year": "2007",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/4371555}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "maksimovic2004",
-        "entry_type": "inproceedings",
-        "fields": {
-          "author": "D. Maksimovic and R. Zane and R. Erickson",
-          "title": "Impact of Digital Control in Power Electronics",
-          "booktitle": "Proc. 16th Int. Symp. Power Semiconductor Devices and ICs (ISPSD)",
-          "year": "2004",
-          "pages": "13--22",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/1332844}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "hu2008",
-        "entry_type": "article",
-        "fields": {
-          "author": "H. Hu and V. Yousefzadeh and D. Maksimovic",
-          "title": "Nonuniform {A/D} Quantization for Improved Dynamic Responses of Digitally Controlled {DC-DC} Converters",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "23",
-          "number": "4",
-          "pages": "1998--2005",
-          "year": "2008",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/4547438}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "chen2003",
-        "entry_type": "article",
-        "fields": {
-          "author": "J. Chen and A. Prodi{\\'c} and R. W. Erickson and D. Maksimovic",
-          "title": "Predictive Digital Current Programmed Control",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "18",
-          "number": "1",
-          "pages": "411--419",
-          "year": "2003",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/1187460}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "bibian2002",
-        "entry_type": "article",
-        "fields": {
-          "author": "S. Bibian and H. Jin",
-          "title": "High Performance Predictive Dead-Beat Digital Controller for {DC} Power Supplies",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "17",
-          "number": "3",
-          "pages": "420--427",
-          "year": "2002",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/1004250}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "yousefzadeh2007",
-        "entry_type": "inproceedings",
-        "fields": {
-          "author": "V. Yousefzadeh and M. Shirazi and D. Maksimovic",
-          "title": "Minimum Phase Response in Digitally Controlled Boost and Flyback Converters",
-          "booktitle": "Proc. IEEE Appl. Power Electron. Conf. (APEC)",
-          "year": "2007",
-          "pages": "865--870",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/4195820}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "vijayalakshmi2014",
-        "entry_type": "article",
-        "fields": {
-          "author": "S. Vijayalakshmi and T. Sree Renga Raja",
-          "title": "Time Domain Based Digital Controller for Buck-Boost Converter",
-          "journal": "J. Electr. Eng. Technol.",
-          "volume": "9",
-          "number": "5",
-          "pages": "1551--1561",
-          "year": "2014",
-          "note": "Available: \\url{https://doi.org/10.5370/JEET.2014.9.5.1551}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "viswanatha2020",
-        "entry_type": "article",
-        "fields": {
-          "author": "V. Viswanatha and R. V. S. Reddy and Rajeswari",
-          "title": "Characterization of Analog and Digital Control Loops for Bidirectional Buck-Boost Converter Using {PID/PIDN} Algorithms",
-          "journal": "J. Electr. Syst. Inf. Technol.",
-          "volume": "7",
-          "number": "1",
-          "year": "2020",
-          "note": "Available: \\url{https://doi.org/10.1186/s43067-020-00015-6}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "erickson2001",
-        "entry_type": "book",
-        "fields": {
-          "author": "R. W. Erickson and D. Maksimovic",
-          "title": "Fundamentals of Power Electronics",
-          "edition": "2nd",
-          "publisher": "Kluwer Academic Publishers",
-          "year": "2001",
-          "note": "Available: \\url{https://link.springer.com/book/10.1007/b100747}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "alobaidi2025",
-        "entry_type": "article",
-        "fields": {
-          "author": "N. A. Al-Obaidi and A. K. Nawar",
-          "title": "End-to-End Quantization Co-Design for {MHz} {GaN} Converters Using Dither and Sigma-Delta Modulation",
-          "journal": "Edison J. Electr. Electron. Eng.",
-          "volume": "3",
-          "pages": "65--75",
-          "year": "2025",
-          "note": "Available: \\url{https://doi.org/10.62909/ejeee.2025.007}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "gonzalez2020",
-        "entry_type": "article",
-        "fields": {
-          "author": "C. Gonz{\\'a}lez-Casta{\\~n}o and C. Restrepo and R. Giral and E. Vidal-Idiarte and J. Calvente",
-          "title": "ADC Quantization Effects in Two-Loop Digital Current Controlled {DC-DC} Power Converters: Analysis and Design Guidelines",
-          "journal": "Applied Sciences",
-          "volume": "10",
-          "number": "20",
-          "pages": "7179",
-          "year": "2020",
-          "note": "Available: \\url{https://doi.org/10.3390/app10207179}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "lukic2007",
-        "entry_type": "article",
-        "fields": {
-          "author": "Z. Lukic and N. Rahman and A. Prodi{\\'c}",
-          "title": "Multibit {Sigma-Delta} {PWM} Digital Controller {IC} for {DC-DC} Converters Operating at Switching Frequencies Beyond 10 {MHz}",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "22",
-          "number": "5",
-          "pages": "1693--1707",
-          "year": "2007",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/4300890}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "zhao2007",
-        "entry_type": "article",
-        "fields": {
-          "author": "Z. Zhao and A. Prodi{\\'c}",
-          "title": "Limit-Cycle Oscillations Based Auto-Tuning System for Digitally Controlled {DC-DC} Power Supplies",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "22",
-          "number": "6",
-          "pages": "2211--2222",
-          "year": "2007",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/4371570}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "norris2008",
-        "entry_type": "inproceedings",
-        "fields": {
-          "author": "M. Norris and L. M. Platon and E. Alarcon and D. Maksimovic",
-          "title": "Quantization Noise Shaping in Digital {PWM} Converters",
-          "booktitle": "Proc. IEEE Power Electron. Specialists Conf. (PESC)",
-          "year": "2008",
-          "pages": "127--133",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/4591912}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "syed2004",
-        "entry_type": "inproceedings",
-        "fields": {
-          "author": "A. Syed and E. Ahmed and E. Alarcon and D. Maksimovic",
-          "title": "Digital Pulse Width Modulator Architectures",
-          "booktitle": "Proc. IEEE Power Electron. Specialists Conf. (PESC)",
-          "year": "2004",
-          "pages": "4689--4695",
-          "note": "Available: \\url{https://ieeexplore.ieee.org/document/1354828}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "patella2003",
-        "entry_type": "article",
-        "fields": {
-          "author": "B. J. Patella and A. Prodi{\\'c} and A. Zirger and D. Maksimovic",
-          "title": "High-Frequency Digital {PWM} Controller {IC} for {DC-DC} Converters",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "18",
-          "number": "1",
-          "pages": "438--446",
-          "year": "2003",
-          "note": "Available: \\url{https://www.ele.utoronto.ca/power_management/jp2.pdf}"
-        }
-      },
-      {
-        "_type": "BibEntry",
-        "key": "liu2009",
-        "entry_type": "article",
-        "fields": {
-          "author": "Y.-F. Liu and E. Meyer and X. Liu",
-          "title": "Recent Developments in Digital Control Strategies for {DC/DC} Switching Power Converters",
-          "journal": "IEEE Trans. Power Electron.",
-          "volume": "24",
-          "number": "11",
-          "pages": "2567--2577",
-          "year": "2009",
-          "note": "Available: \\url{https://doi.org/10.1109/TPEL.2009.2030809}"
-        }
-      }
-    ]
-  },
-  "save_path": "/home/touhid/Documents/texflowmcp/workspace/variants/ieee-access.texflow.json",
-  "shared": {},
-  "variants": [
-    "ieee-access.texflow.json"
+  "affiliations": [
+   "Leading University, Sylhet",
+   "Leading University, Sylhet",
+   "Leading University, Sylhet"
   ]
+ },
+ "layout": {
+  "_type": "Layout",
+  "document_class": "ieee-access",
+  "columns": 2,
+  "font_size": "12pt",
+  "paper_size": "a4paper",
+  "margins": {
+   "_type": "Margins",
+   "top": "1in",
+   "bottom": "1in",
+   "left": "1in",
+   "right": "1in"
+  },
+  "toc": false,
+  "lof": false,
+  "lot": false,
+  "section_break": "",
+  "styles": []
+ },
+ "content": [
+  {
+   "_type": "Section",
+   "title": "Introduction",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Paragraph",
+     "text": "Digital control loops are now standard in switching power converters, driven by programmability, immunity to analog component drift, and integration with digital loads \\cite{maksimovic2004,corradini2015}. The complete digital loop contains two unavoidable quantizers: the analog-to-digital converter (ADC) that samples the output voltage, and the digital pulse-width modulator (DPWM) that resolves the duty ratio. Their resolutions, together with the sampling period of the controller, jointly determine regulation quality. Classic work established that coarse quantization causes steady-state limit cycling and conditions between DPWM and ADC resolution for its elimination \\cite{peterchev2003,peng2007}, while quantization-effect modeling permits quantitative prediction of these oscillations \\cite{maksimovic2007}. Recent work extends the analysis to MHz-range GaN converters using dither and sigma-delta modulation \\cite{alobaidi2025,gonzalez2020} and to design guidelines for two-loop current-mode digital controllers \\cite{gonzalez2020}."
+    },
+    {
+     "_type": "Paragraph",
+     "text": "Digital control relieves the analog constraints of passive compensation, enables programmability and auto-tuning, and integrates naturally with digital loads \\cite{maksimovic2004,corradini2015}. In exchange, the designer accepts three implementation-quantized quantities that an analog loop never sees: the ADC resolution of the measured output, the DPWM resolution of the commanded duty, and the sampling period at which controller and power stage are synchronized."
+    },
+    {
+     "_type": "Paragraph",
+     "text": "The theoretical basis is well established. Peterchev and Sanders derived conditions on ADC/DPWM resolution trade-offs for limit-cycle elimination and introduced digital dither to recover effective DPWM resolution \\cite{peterchev2003}. Peng, Prodi\u0107, Alarc\u00f3n, and Maksimovi\u0107 derived static and dynamic quantization models explaining the origins of limit-cycle oscillations \\cite{peng2007}, and Maksimovi\u0107 and Zane provided the small-signal discrete-time framework used to design digitally controlled converters \\cite{maksimovic2007}. A fuller survey appears in \\cite{liu2009}. On the application side, low-resolution non-uniform ADC quantization has been shown to improve dynamic response \\cite{hu2008}, and the full control loop benefits from predictive structures \\cite{chen2003,bibian2002}."
+    },
+    {
+     "_type": "Paragraph",
+     "text": "Two observations motivate this work. First, most quantization studies isolate a single stage, whereas a practical controller is constrained in all three quantities simultaneously; the interaction between sampling period, ADC word length, and PWM word length is rarely treated as one design problem. Second, the buck-boost converter, whose inverted output and non-minimum phase control path \\cite{yousefzadeh2007} make regulation inherently harder, is underrepresented in the digital-control literature: most buck-boost-specific digital studies consider time-domain or PID structures at a single resolution \\cite{vijayalakshmi2014,viswanatha2020} and do not sweep the full implementation space. The classical converter model itself is textbook material \\cite{erickson2001}."
+    },
+    {
+     "_type": "Paragraph",
+     "text": "The central question of this work is therefore: how do sampling period, ADC quantization, PWM resolution, and real-time computational latency jointly affect the closed-loop performance of an ESP32-S3-controlled inverting buck-boost converter, and can a lightweight quantization-aware adaptive PID maintain acceptable regulation while reducing unnecessary controller-update effort? Answering it requires three levels of validation that earlier studies treat separately: a continuous (analog) baseline, a digital simulation that introduces sampling, ADC and PWM quantization and computational delay, and a closed-loop measurement on an embedded platform. The ESP32-S3 is not merely a device that runs the PID; it is the experimental vehicle for investigating the real-world consequences of digital implementation, exposing quantities a simulator cannot produce directly: the acquisition time of the on-chip ADC, the execution time of the control step, the update latency of the PWM peripheral, and the resulting control-loop latency and CPU utilization."
+    },
+    {
+     "_type": "Paragraph",
+     "text": "This paper reports a simulation-to-hardware investigation of a digitally controlled inverting buck-boost converter under simultaneous quantization of sampling period, ADC resolution, and PWM resolution. Contributions: (1) a 79-run factorial study that separates the individual effect of each quantizer from their combined effect, locates the critical sampling boundary near 3.5-4$\\times T_{sw}$, and quantifies the super-additive interaction between the three stages; (2) an objective worst-case selection made after the sweep, not a priori; (3) the identification of a half-scale ADC coincidence ($V_{ref} = -FS/2$) that masks steady-state error at low ADC resolutions; (4) an ESP32-S3 closed-loop implementation whose control-loop latency is measured and decomposed into ADC acquisition, PID execution, and PWM update; (5) an effective-resolution experiment showing that the measured acquisition noise floor masks the quantization effects the simulation predicts; and (6) a lightweight quantization-aware adaptive PID that switches update effort by a measured period and ripple indicator and validates the predicted performance-versus-resource trade-off with an update-reduction ratio of roughly 84\\%. The novelty lies not in variable-rate sampling or dithering individually, but in their integration into a resource-aware control framework that is characterized, implemented, and experimentally validated on one platform."
+    }
+   ]
+  },
+  {
+   "_type": "Section",
+   "title": "System Model and Digital Control",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Paragraph",
+     "text": "The plant is an ideal inverting buck-boost converter (Fig.~\\ref{fig:ckt}) with input $V_{in}=+12$\\,V, reference $V_{ref}=-12$\\,V, $L=100\\,\\mu$H, $C=220\\,\\mu$F, switching frequency $f_{sw}=100$\\,kHz ($T_{sw}=10\\,\\mu$s), and load $R=10\\,\\Omega$."
+    },
+    {
+     "_type": "Figure",
+     "path": "/home/touhid/Documents/powerpaper/results/figures/circuit_power.png",
+     "caption": "Inverting buck-boost power stage used in the study ($V_{in}=+12$\\,V, $L=100\\,\\mu$H, $C=220\\,\\mu$F, $f_{sw}=100$\\,kHz, $R=10\\,\\Omega$; output $V_{out}\\approx-12$\\,V at $D=0.5$).",
+     "label": "fig:ckt",
+     "width": "0.8\\textwidth",
+     "position": "htbp",
+     "span_columns": false,
+     "ref": ""
+    },
+    {
+     "_type": "Figure",
+     "path": "/home/touhid/Documents/powerpaper/results/figures/circuit_loop.png",
+     "caption": "Digital control loop: velocity-form PID, DPWM and ADC quantizers ($b \\in \\{12,10,8,6\\}$ bit, FS = 24\\,V), and sampling at $T_s = 10/20/50\\,\\mu$s. The reference sits exactly at the half-scale code $V_{ref} = -FS/2$.",
+     "label": "fig:loop",
+     "width": "0.8\\textwidth",
+     "position": "htbp",
+     "span_columns": false,
+     "ref": ""
+    },
+    {
+     "_type": "Paragraph",
+     "text": "During OFF, the inductor current is held at zero when it would otherwise reverse (zero-current boundary), which counts discontinuous-mode (DCM) cycles and keeps the model valid in DCM without clamping the output. Many simplified studies go silent on this point. All reported results are obtained on this switched-state model, not on an averaged approximation, so quantization artifacts (limit cycles, DCM chatter) appear faithfully."
+    },
+    {
+     "_type": "Equation",
+     "tex": "\\text{ON:}\\quad \\frac{di_L}{dt}=\\frac{+V_{in}}{L}, \\quad \\frac{dv_C}{dt}=-\\frac{v_C}{RC}",
+     "numbered": true,
+     "label": ""
+    },
+    {
+     "_type": "Equation",
+     "tex": "\\text{OFF:}\\quad \\frac{di_L}{dt}=\\frac{v_C}{L}, \\quad \\frac{dv_C}{dt}=-\\frac{i_L+v_C/R}{C}",
+     "numbered": true,
+     "label": ""
+    },
+    {
+     "_type": "Section",
+     "title": "Digital Controller and Quantization",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "A velocity-form digital PID with positive gains (Fig.~\\ref{fig:loop}) operates at the sampling period $T_s$:"
+      },
+      {
+       "_type": "Equation",
+       "tex": "d[k] = d[k-1] + K_p\\big(e[k]-e[k-1]\\big) + K_i T_s\\, e[k] + \\frac{K_d}{T_s}\\big(e[k]-2e[k-1]+e[k-2]\\big)",
+       "numbered": true,
+       "label": ""
+      },
+      {
+       "_type": "Paragraph",
+       "text": "with $e[k]=v_{meas}[k]-V_{ref}$, duty saturated to $[0.05,\\,0.95]$, and no separate integrator state (inherent anti-windup). The measurement, duty, and update cadence are each quantized independently:"
+      },
+      {
+       "_type": "ItemList",
+       "items": [
+        {
+         "_type": "ListItem",
+         "text": "Sampling: the controller updates every $T_s \\in \\{T_{sw},\\,2T_{sw},\\,5T_{sw}\\}$ (10, 20, 50 $\\mu$s);\\\\ ADC: mid-tread quantizer, full-scale $FS=24$\\,V, 12/10/8/6 bits. Note $V_{ref}=-FS/2$, so the reference is exactly representable at every resolution;\\\\ PWM: duty quantized to $2^b$ levels, $b\\in\\{12,10,8,6\\}$.",
+         "children": []
+        }
+       ],
+       "ordered": false,
+       "start": 1
+      },
+      {
+       "_type": "Paragraph",
+       "text": "A continuous-ideal baseline recomputes the same PID every $dt$ with no quantization (true analog reference). The frozen controller gains were obtained once, deterministically, before any quantization study: grid search over $K_p\\in\\{0.005,0.01,0.02,0.05\\}$, $K_i\\in\\{20,100,500,2000\\}$, $K_d\\in\\{0,2\\times10^{-6},10^{-5}\\}$ with cost $J=o_v/10+t_s/5\\,\\text{ms}+\\text{IAE}/0.05$ under constraints overshoot $\\le 10\\%$ and $|e_{ss}|\\le 60$\\,mV, re-validated on the switched model: $K_p=0.05$, $K_i=100.0$, $K_d=10^{-5}$. No parameter was touched during the quantization study."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "_type": "Section",
+   "title": "Simulation Framework",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Paragraph",
+     "text": "The study executes 79 simulations (Table~\\ref{tab:plan}): the continuous baseline, the ideal digital controller ($T_s=T_{sw}$, 16-bit ADC, 16-bit PWM), three sampling-only points, a six-point focused sampling sweep across the critical boundary, four ADC-only, four PWM-only runs, the full $3\\times4\\times4$ factorial sweep (48 runs), six disturbance runs (input step $12\\to9$\\,V and load step $10\\to5\\,\\Omega$, applied at $t=60$\\,ms, on the continuous baseline, the ideal digital controller, and the objectively selected worst configuration), and six operating-point robustness runs ($V_{in}=10,15$\\,V on three configurations)."
+    },
+    {
+     "_type": "Table",
+     "caption": "Study layout (79 simulations).",
+     "label": "tab:plan",
+     "headers": [
+      "Group",
+      "Runs",
+      "T_s",
+      "ADC/PWM"
+     ],
+     "rows": [
+      [
+       "Continuous baseline",
+       "1",
+       "---",
+       "analog"
+      ],
+      [
+       "Ideal digital",
+       "1",
+       "1x",
+       "16/16 bit"
+      ],
+      [
+       "Sampling only",
+       "3",
+       "1/2/5x",
+       "16/16"
+      ],
+      [
+       "Boundary sweep",
+       "6",
+       "1.5-4x",
+       "16/16"
+      ],
+      [
+       "ADC only",
+       "4",
+       "1x",
+       "12/10/8/6, 16"
+      ],
+      [
+       "PWM only",
+       "4",
+       "1x",
+       "16, 12/10/8/6"
+      ],
+      [
+       "Factorial sweep",
+       "48",
+       "all",
+       "all"
+      ],
+      [
+       "Disturbances",
+       "6",
+       "selected",
+       "3 configs"
+      ],
+      [
+       "Op-point robustness",
+       "6",
+       "selected",
+       "3 configs"
+      ]
+     ],
+     "position": "htbp",
+     "booktabs": true,
+     "width": "",
+     "fit": "auto",
+     "span_columns": false,
+     "ref": ""
+    },
+    {
+     "_type": "Paragraph",
+     "text": "Metrics: 2\\% settling time, overshoot, steady-state error, peak-to-peak ripple (limit cycle), IAE, ITAE, and DCM-cycle count. For disturbance runs all metrics are evaluated on the post-step 60\\,ms window and ripple on its final 50\\%. The worst configuration is selected objectively after the sweep, as the run with the largest normalized degradation of steady-state error, IAE, and limit cycle relative to the ideal digital controller. No configuration is pre-declared worst."
+    }
+   ]
+  },
+  {
+   "_type": "Section",
+   "title": "Results",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Section",
+     "title": "Continuous versus Ideal Digital",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "The conversion from analog to ideal digital control already costs measurable quality (Table~\\ref{tab:base}): the 16-bit/one-cycle system settles 36\\% slower (2.66 vs 1.96\\,ms) and shows a 12.76\\,mV steady-state offset and 39.6\\,mV limit cycle against the continuous 0.44\\,mV / 26.7\\,mV. The 12.8\\,mV floor is the quantization-limited operating point for these gains; every further result is expressed relative to it."
+      },
+      {
+       "_type": "Table",
+       "caption": "Continuous baseline vs ideal digital.",
+       "label": "tab:base",
+       "headers": [
+        "",
+        "Continuous",
+        "Ideal digital"
+       ],
+       "rows": [
+        [
+         "Settling (ms)",
+         "1.96",
+         "2.66"
+        ],
+        [
+         "Overshoot (%)",
+         "0.07",
+         "0.02"
+        ],
+        [
+         "|e_ss| (mV)",
+         "0.44",
+         "12.76"
+        ],
+        [
+         "Limit cycle (mV)",
+         "26.7",
+         "39.6"
+        ],
+        [
+         "IAE",
+         "0.0058",
+         "0.0109"
+        ],
+        [
+         "DCM cycles",
+         "0",
+         "0"
+        ]
+       ],
+       "position": "htbp",
+       "booktabs": true,
+       "width": "0.45\\columnwidth",
+       "fit": "auto",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    },
+    {
+     "_type": "Section",
+     "title": "Individual Stage Effects",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "Fig.~\\ref{fig:sampling} isolates the sampling stage at 16-bit resolution and locates the critical boundary. Settling degrades smoothly as $T_s/T_{sw}$ rises from 1 to 3.5 (2.66 to 6.38 ms, all still regulation-valid), then the loop loses regulation outright at $4\\times$: it never settles, the limit cycle jumps to 1.59 V, and 101\\,736 DCM cycles accrue in 60 ms. The practical boundary therefore sits between $3.5\\times$ and $4\\times T_{sw}$ (35--40 $\\mu$s); $T_s = 5T_{sw}$ fails in every configuration, alone or combined."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/results/figures/fig2_sampling.png",
+       "caption": "Sampling-period boundary sweep at 16-bit ADC/PWM: settling time, steady-state error, limit cycle, and IAE versus $T_s/T_{sw}$. Regulation is lost between $3.5\\times$ and $4\\times T_{sw}$.",
+       "label": "fig:sampling",
+       "width": "0.8\\textwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      },
+      {
+       "_type": "Paragraph",
+       "text": "ADC resolution couples to the reference in a subtle way (Fig.~\\ref{fig:adc}): because $V_{ref}=-FS/2$ is exactly representable, the 8-bit and 6-bit ADCs lock onto the exact code and reduce the measured steady-state error to 0.44\\,mV while masking a worse transient (overshoot rises from 0.06\\% at 12-bit to 0.85\\% at 6-bit; settling from 2.70 to 3.49\\,ms). This is a half-scale coincidence, not an ADC benefit."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/results/figures/fig3_adc.png",
+       "caption": "ADC-resolution effect at $T_s=T_{sw}$ (16-bit PWM): because $V_{ref}=-FS/2$ is an exact code, the 8-bit and 6-bit ADCs lock onto it, hiding steady-state error while worsening the transient (overshoot and settling).",
+       "label": "fig:adc",
+       "width": "0.8\\textwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      },
+      {
+       "_type": "Paragraph",
+       "text": "PWM resolution below 8 bits dominates the limit cycle (Fig.~\\ref{fig:pwm}): 6-bit PWM adds a 204.8\\,mV ripple versus $\\approx$39.5\\,mV at 12/10/8-bit. Duty quantization is the direct source of steady-state ripple, as predicted by limit-cycle analysis \\cite{peterchev2003,peng2007}; at 6-bit the DPWM step is $2/64=31.25$\\,mV of duty, which maps through the control-to-output gain into the observed 204.8\\,mV ripple. This is precisely the regime addressed by finer DPWM controller implementations \\cite{patella2003,syed2004} and by noise-shaping modulators \\cite{norris2008}."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/results/figures/fig4_pwm.png",
+       "caption": "PWM-resolution effect at $T_s=T_{sw}$ (16-bit ADC): duty quantization below 8 bits is the dominant limit-cycle source, adding a 204.8\\,mV ripple at 6-bit PWM versus $\\approx$39.5\\,mV at 12/10/8-bit.",
+       "label": "fig:pwm",
+       "width": "0.8\\textwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    },
+    {
+     "_type": "Section",
+     "title": "Combined Sweep and Interactions",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "In the 48-run factorial sweep the worst configuration is $T_s=5T_{sw}$, ADC=8-bit, PWM=12-bit (normalized degradation score 1309.2): settling never completes within 60\\,ms, steady-state error $-13.43$\\,V, limit-cycle amplitude 7.33\\,V, IAE 0.789, 127\\,075 DCM cycles. Fig.~\\ref{fig:perf} classifies every combination against explicit thresholds (settling $\\le 6$\\,ms, $|e_{ss}| \\le 120$\\,mV, limit cycle $\\le 120$\\,mV, overshoot, DCM) into excellent / acceptable / marginal / unusable. Sampled at $T_s = T_{sw}$, 13 of 16 combinations are excellent and the rest acceptable; at $2\\times$ all are acceptable or marginal; at $5\\times$ all 16 are unusable."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/results/figures/fig8_perf_map.png",
+       "caption": "Performance map of the 48-run sweep. Thresholds: excellent ($t_{settle}\\le4$ ms, $|e_{ss}|\\le60$ mV, LC $\\le60$ mV, ov $\\le5\\%$), acceptable ($t_{settle}\\le6$ ms, $|e_{ss}|,\\text{LC}\\le120$ mV), marginal, unusable ($t_{settle}\\ge50$ ms).",
+       "label": "fig:perf",
+       "width": "0.8\\textwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      },
+      {
+       "_type": "Paragraph",
+       "text": "The worst configuration is far worse than any individual degradation: $-13.43$\\,V versus the $-13.07$\\,V of sampling alone, but with 127\\,075 DCM cycles and a 7.33\\,V limit cycle that the sampling-only run does not exhibit. The super-additivity is quantitative: with $D$ the normalized partial degradation (steady-state error, IAE, and limit cycle relative to the ideal digital controller), the individual terms are $D_{sampling}(5\\times)=1141.6$, $D_{ADC}(8\\text{-bit})=0.6$, and $D_{PWM}(12\\text{-bit})=0.0$; the additive prediction is 1142.2, whereas the measured combined degradation is $D_{total}=1309.2$, an interaction of $+167$ ($+15\\%$). The 8-bit ADC coincidence, harmless alone, converts a slowly sampling loop into deep limit-cycle chatter once the 12-bit PWM pulls the operating point across the coincidence."
+      }
+     ]
+    },
+    {
+     "_type": "Section",
+     "title": "Disturbance Rejection",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "Table~\\ref{tab:dist} summarizes the six disturbance runs (step at $t=60$\\,ms; recovery time $=t_{settle}-60$\\,ms). Both healthy controllers reject input and load steps in under 1.5\\,ms with negligible IAE. The worst configuration never re-regulates within the observation window: it settles into deep DCM chatter with $>$5\\,V of steady-state error and over 160\\,000 DCM cycles per event (Fig.~\\ref{fig:dist})."
+      },
+      {
+       "_type": "Table",
+       "caption": "Disturbance response (step at $t=60$\\,ms).",
+       "label": "tab:dist",
+       "headers": [
+        "Config",
+        "Event",
+        "Recovery",
+        "|e_ss| / IAE"
+       ],
+       "rows": [
+        [
+         "Continuous",
+         "Vin step",
+         "1.43 ms",
+         "0.0 mV / 0.0014"
+        ],
+        [
+         "Continuous",
+         "Load step",
+         "0.94 ms",
+         "0.3 mV / 0.0013"
+        ],
+        [
+         "Ideal dig.",
+         "Vin step",
+         "0.92 ms",
+         "14.9 mV / 0.0017"
+        ],
+        [
+         "Ideal dig.",
+         "Load step",
+         "0.84 ms",
+         "26.1 mV / 0.0019"
+        ],
+        [
+         "Worst",
+         "Vin step",
+         "never",
+         "8.9 V / 0.535"
+        ],
+        [
+         "Worst",
+         "Load step",
+         "never",
+         "5.9 V / 0.353"
+        ]
+       ],
+       "position": "htbp",
+       "booktabs": true,
+       "width": "0.9\\columnwidth",
+       "fit": "auto",
+       "span_columns": false,
+       "ref": ""
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/results/figures/fig7_disturbances.png",
+       "caption": "Disturbance response: 2\\%-settling trajectories for input step $V_{in}:12\\to9$\\,V and load step $R:10\\to5\\,\\Omega$ at $t=60$\\,ms on the continuous baseline, ideal digital controller, and the worst combined configuration (5$\\times$, 8-bit ADC, 12-bit PWM).",
+       "label": "fig:dist",
+       "width": "0.8\\textwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    },
+    {
+     "_type": "Section",
+     "title": "Operating-Point Robustness",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "The main conclusions are not an artifact of the single nominal point ($V_{in}=12$\\,V, $V_{ref}=-12$\\,V, $R=10\\,\\Omega$). Table~\\ref{tab:op} repeats the ideal, a representative good ($1\\times$, 10-bit, 10-bit), and a representative poor ($2\\times$, 6-bit, 6-bit) configuration at $V_{in}=10$ and 15\\,V with the same frozen gains. Ideal and good configurations retain full regulation (2.5--2.7\\,ms settling, sub-100\\,mV limit cycle) across the input range. The poor configuration holds at $10$ and $12$\\,V but degrades sharply at $V_{in}=15$\\,V. It settles only at the very edge of the 60\\,ms window (59.3\\,ms), with a 561\\,mV limit cycle and 18 DCM excursions. Marginal designs are therefore operating-point sensitive, not merely sampling-sensitive."
+      },
+      {
+       "_type": "Table",
+       "caption": "Operating-point robustness: settling time (ms) / limit cycle (mV) at $V_{in}=10,12,15$\\,V with gains frozen ($V_{ref}=-12$\\,V, $R=10\\,\\Omega$). No asterisk: settles inside 60 ms; * does not settle in the window.",
+       "label": "tab:op",
+       "headers": [
+        "config",
+        "10 V",
+        "12 V",
+        "15 V"
+       ],
+       "rows": [
+        [
+         "ideal (1\u00d7,16,16)",
+         "2.74 / 67.9",
+         "2.66 / 39.6",
+         "2.55 / 28.9"
+        ],
+        [
+         "good (1\u00d7,10,10)",
+         "2.69 / 28.6",
+         "2.64 / 57.8",
+         "2.52 / 80.6"
+        ],
+        [
+         "poor (2\u00d7,6,6)",
+         "5.40 / 28.9",
+         "5.11 / 27.7",
+         "59.3 / 561*"
+        ]
+       ],
+       "position": "htbp",
+       "booktabs": true,
+       "width": "",
+       "fit": "auto",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "_type": "Section",
+   "title": "Experimental Closed-Loop Platform",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Paragraph",
+     "text": "The closed-loop platform is the ESP32-S3 (240\\,MHz, Arduino core) with a 100\\,kHz LEDC PWM on GPIO2 shorted to ADC1 input GPIO1, so the sensed pin voltage is the duty-scaled rail, mapped into the paper's $V_{ref}=-12$\\,V, FS$=24$\\,V frame by the inverting gain $V_{out} = -V_{pin}\\cdot 24/3.3$. This reproduces the buck-boost sign inversion and places $V_{ref}$ exactly at the half-scale code, at which the paper's ADC coincidence is active. The plant is intentionally not a real power stage: it is an emulated first-order plant whose dynamics are the pin-gain plus the EMA sensor filter, so the platform isolates the digital-implementation effects (sampling, quantization, latency, adaptation) that are the subject of this study. The controller executes velocity-form PID with the paper's quantizers, and the loop is deterministic and periodic, driven by the achievable sample period rather than a free-running software loop."
+    },
+    {
+     "_type": "Section",
+     "title": "Measured Control-Loop Latency",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "Table~\\ref{tab:emb} reports the measured split of the control loop, timed with the CPU cycle counter at 240\\,MHz and illustrated in Fig.~\\ref{fig:lat}. The ADC dominates: the calibrated millivolt read averages $89.1\\,\\mu$s, the raw 12-bit read $60.0\\,\\mu$s, and the fastest single read never completes sooner than $59.5\\,\\mu$s. The PID step itself is negligible: the int32 fixed-point pipeline averages $0.86\\,\\mu$s and the float32 pipeline $6.8\\,\\mu$s, so the controller occupies at most 10.4\\% (float) or 1.3\\% (int32) of the loop budget. The LEDC PWM write costs $4.2\\,\\mu$s. The total per-step control latency is $T_{lat} = T_{ADC} + T_{PID} + T_{PWM} \\approx 65\\,\\mu$s, meaning the fastest periodic loop this platform can sustain is about $6\\times T_{sw}$ (10\\,$\\mu$s switching period), and useful oversampled loops reach several hundred times $T_{sw}$ (up to $\\approx680\\times$ at N=64). The hardware therefore operates entirely in the sampling regime the simulation identifies as unstable or critically degraded; this is the central constraint that motivates the adaptive controller presented in the final subsection."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_latency.png",
+       "caption": "Measured control-loop latency breakdown on the ESP32-S3 (240\\,MHz, Arduino core): ADC acquisition dominates at 60-89\\,$\\mu$s; PID computation is 0.86\\,$\\mu$s (int32) to 6.8\\,$\\mu$s (float32); PWM register write is 4.2\\,$\\mu$s. Log scale.",
+       "label": "fig:lat",
+       "width": "0.8\\textwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      },
+      {
+       "_type": "Table",
+       "caption": "Measured ESP32-S3 control-loop quantities. ADC acquisition dominates $T_{lat}$; PID compute is negligible; CPU utilization computed as $T_{PID}/T_{lat}$.",
+       "label": "tab:emb",
+       "headers": [],
+       "rows": [
+        [
+         "Quantity",
+         "Value"
+        ],
+        [
+         "T_ADC (raw 12-bit)",
+         "60.0 $\\mu$s avg / 125.5 $\\mu$s max"
+        ],
+        [
+         "T_ADC (calibrated mV)",
+         "89.1 $\\mu$s avg"
+        ],
+        [
+         "T_PID (int32 fixed)",
+         "0.86 $\\mu$s avg"
+        ],
+        [
+         "T_PID (float32)",
+         "6.8 $\\mu$s avg"
+        ],
+        [
+         "T_PWM (LEDC write)",
+         "4.2 $\\mu$s avg"
+        ],
+        [
+         "T_lat = T_ADC+T_PID+T_PWM",
+         "$\\approx$65 $\\mu$s"
+        ],
+        [
+         "CPU utilization",
+         "1.3% (int32) / 10.4% (float)"
+        ],
+        [
+         "Fastest periodic loop",
+         "$\\approx$6 $\\times$ Tsw"
+        ],
+        [
+         "Oversampled loop (N=64)",
+         "$\\approx$680 $\\times$ Tsw"
+        ]
+       ],
+       "position": "htbp",
+       "booktabs": true,
+       "width": "",
+       "fit": "auto",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    },
+    {
+     "_type": "Section",
+     "title": "Effective-Resolution Sweep",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "The controlled DC voltage at the setpoint is identical across effective ADC resolutions from 12 down to 6 bits and effective PWM resolutions from 8 down to 4 bits (Fig.~\\ref{fig:effres}): the closed loop holds the mean within $\\pm$18\\,mV in every cell, and the per-cell IAE variation (6.8-8.3) is within the run-to-run noise of the platform. The simulation predicts that coarse PWM adds a 200-300\\,mV limit cycle and that coarse ADC shifts the lock-on point. On the ESP32-S3 these effects do not appear, because the acquisition noise floor is far larger: the averaged read at this schedule carries $\\approx$1.5\\,V rms in the output frame (measured $\\sigma_N \\approx 1.65/\\sqrt{N}$\\,V at the pin, $\\times 24/3.3$ into the output frame, giving $\\approx$1.5\\,V at N=64), and the closed-loop ripple remains at 1.6-1.9\\,V peak-to-peak regardless of resolution. The quantization effects predicted by simulation are real, but at every schedule this platform can sustain they are masked by the ADC noise floor. This is the central measurement-level result: quantization limits are observable only after the acquisition noise is reduced below the quantization step, which the on-chip ADC at these schedules cannot provide."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_effres.png",
+       "caption": "Effective-resolution sweep at the N=64 achievable schedule. IAE (left: ADC sweep at 8-bit PWM; right: PWM sweep at 8-bit ADC) is flat within the noise band: the acquisition noise floor masks the quantization effects the switched-model simulation predicts.",
+       "label": "fig:effres",
+       "width": "0.8\\textwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    },
+    {
+     "_type": "Section",
+     "title": "Achievable-Schedule Sweep and Latency Injection",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "The measured achievable periods form a ladder from $73\\,\\mu$s (raw single read, N=1) to $6.84\\,$ms (N=64 averaged reads). Fig.~\\ref{fig:sched} sweeps all four rungs with the frozen paper gains and with the bandwidth-matched retuned gains ($k_p=0.02$, $k_i$ scaled so $k_i T_s = 3.4\\times10^{-3}$). The retuned loop holds steady-state error below 40\\,mV on every rung. The observable that changes with schedule is the ripple: it falls from 4.9\\,V peak-to-peak at N=1 to 1.5\\,V at N=64, tracking the measured $\\sigma\\propto 1/\\sqrt{N}$ noise floor rather than any quantization effect. Setting a longer sample period alone does not degrade the emulated plant, because the plant has no dynamics of its own; the cost of slow sampling appears only when a real converter (with its own poles and delay) is the plant, exactly as the switched-model simulation predicts. Separately, injecting an additional computational delay of 0-200\\,$\\mu$s at the fast schedule raises the effective period from 73 to 274\\,$\\mu$s and grows the IAE by a factor of 4.5 (Fig.~\\ref{fig:latinj}). Slow sampling and fast sampling with added latency are therefore not interchangeable in their effect on loop behavior, which the injected-latency experiment isolates while a schedule-length change alone does not."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_sched.png",
+       "caption": "Achievable-schedule sweep (top) and injected-latency experiment (bottom) on the ESP32-S3. Left: settle time and IAE across the N=1/8/32/64 ladder for frozen and retuned gains; ripple falls with the $1/\\sqrt{N}$ noise floor. Right: injecting 0-200\\,$\\mu$s computational delay at the fast schedule grows IAE by 4.5$\\times$, separating slow sampling from fast-sampling-plus-latency.",
+       "label": "fig:sched",
+       "width": "0.95\\columnwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_latinj.png",
+       "caption": "Injected computational latency at the fast schedule: effective period grows 73 to 274\\,$\\mu$s and IAE by 4.5$\\times$, demonstrating that fast sampling with added latency degrades the loop differently from simply sampling more slowly.",
+       "label": "fig:latinj",
+       "width": "0.95\\columnwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    },
+    {
+     "_type": "Section",
+     "title": "Adaptive Update Management",
+     "level": 2,
+     "label": "",
+     "page_break": "",
+     "content": [
+      {
+       "_type": "Paragraph",
+       "text": "Because latency is dominated by the ADC rather than the arithmetic, the controller's cost is best managed by reducing how often the hardware is asked to sample-and-compute. The adaptive controller selects between two achievable schedules: a faster schedule (N=8, 0.86\\,ms period) and a slower one (N=64, 6.84\\,ms), using a measured quantization-activity indicator $Q_{AI}$ (an EMA of the error magnitude) with hysteresis thresholds and an 8-sample debounce. It leaves the fast schedule only when the smoothed error has settled below the noise-aware band, returns to fast mode when the error exceeds a large threshold, and activates a $\\pm$1-LSB duty dither only when the loop is settled but $Q_{AI}$ stays elevated (a limit-cycle hint), with its own hysteretic threshold to avoid toggling. Fig.~\\ref{fig:adaptive} shows the run: startup transient and a set-point step from $-12$ to $-6$\\,V at 2.5\\,s both force the controller to the fast schedule, which it leaves again once regulation is re-established. Over the 6\\,s run the controller spends 3.8\\% of the time fast, 87.2\\% slow, and 9.0\\% dithering, giving an update reduction ratio $S_R = 1 - f_{avg}/f_{fast}$ of 0.84 while holding steady-state error within the same $\\pm$40\\,mV band as the fixed-rate loop. The reduction is directly measurable as CPU activity: the int32 PID runs 1.3\\% of the loop budget at fast rate and proportionally less in slow mode. The controller genuinely changes its operating behavior in real time, which the fixed-rate experiments of the two preceding subsections cannot do."
+      },
+      {
+       "_type": "Figure",
+       "path": "/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_adaptive.png",
+       "caption": "Adaptive schedule+dithering run on the ESP32-S3 (N=8 fast, N=64 slow). Top: sensed output with a set-point step from $-12$ to $-6$\\,V at 2.5\\,s (dashed). Middle: duty. Bottom: selected mode. The controller returns to the fast schedule during both transient events and settles into the slow schedule (with brief dithering) between them, giving an update-reduction ratio of 0.84.",
+       "label": "fig:adaptive",
+       "width": "0.95\\columnwidth",
+       "position": "htbp",
+       "span_columns": false,
+       "ref": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "_type": "Section",
+   "title": "Discussion",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Paragraph",
+     "text": "Taken together, the three levels form a consistent picture. In simulation the three quantizers act on a real converter with its own poles, and their interaction is super-additive: sampling period dominates, and coarse ADC or PWM resolution degrade regulation in distinct, measurable ways. On the ESP32-S3 the same controller faces a different bottleneck: the on-chip ADC's 60-89\\,$\\mu$s acquisition time forces every achievable schedule into the sampling regime the simulation deems unstable for a 100\\,kHz converter, and the acquisition noise floor swamps the quantization effects the simulation predicts. The compute is almost free (1.3\\% CPU); the cost of digital control lives in acquisition and update, not arithmetic. That asymmetry is why the quantization-aware adaptive controller is not an enhancement but a necessity: by spending sampling effort only when the error or the activity indicator demands it, it recovers regulation quality at 16\\% of the update frequency, and its measured latency, occupancy, and update-reduction figures are the quantities an otherwise purely simulative study could only assume. The negative results are as informative as the positive ones: the hardware cannot reach the 3.5-4$\\times T_{sw}$ boundary, and the effective-resolution sweep shows that quantization limits become visible only below a noise floor this ADC cannot reach at a useful schedule."
+    }
+   ]
+  },
+  {
+   "_type": "Section",
+   "title": "Conclusion",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Paragraph",
+     "text": "This paper established how sampling period, ADC quantization, PWM resolution, and real-time computational latency jointly shape the closed-loop performance of an ESP32-S3-controlled inverting buck-boost converter. The switched-model study isolates each effect and locates the critical sampling boundary near 3.5-4$\\times T_{sw}$; the embedded implementation then measures what simulation cannot: a 65\\,$\\mu$s control-loop latency dominated by ADC acquisition, 1.3\\% CPU utilization, and an acquisition noise floor that masks the quantization effects the simulation predicts. Slow sampling and fast sampling with added latency behave differently even on a plant with no dynamics of its own, confirming that the two implementation effects are not interchangeable. A lightweight quantization-aware adaptive PID switches between achievable schedules using a measured error/activity indicator with hysteresis, holds steady-state error below 40\\,mV, and cuts controller-update frequency by 84\\%. The contributions are the integration, characterization, and experimental resource-aware validation of these effects on one platform, rather than any single technique in isolation. The on-chip ADC's acquisition time is the binding constraint of this platform; future work with a faster external ADC or a real power stage would place the controller inside the simulated critical region and test directly whether the adaptive framework remains necessary at higher rates."
+    }
+   ]
+  },
+  {
+   "_type": "Section",
+   "title": "Acknowledgment",
+   "level": 1,
+   "label": "",
+   "page_break": "",
+   "content": [
+    {
+     "_type": "Paragraph",
+     "text": "The authors thank Tareq Anwar Shikdar for guidance; no external funding was received."
+    }
+   ]
+  }
+ ],
+ "bibliography": {
+  "_type": "Bibliography",
+  "style": "authoryear",
+  "entries": [
+   {
+    "_type": "BibEntry",
+    "key": "corradini2015",
+    "entry_type": "book",
+    "fields": {
+     "author": "L. Corradini and D. Maksimovic and P. Mattavelli and R. Zane",
+     "title": "Digital Control of High-Frequency Switched-Mode Power Converters",
+     "publisher": "Wiley-IEEE Press",
+     "year": "2015",
+     "note": "ISBN 978-1-118-93510-1"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "peterchev2003",
+    "entry_type": "article",
+    "fields": {
+     "author": "A. V. Peterchev and S. R. Sanders",
+     "title": "Quantization Resolution and Limit Cycling in Digitally Controlled {PWM} Converters",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "18",
+     "number": "1",
+     "pages": "301--308",
+     "year": "2003",
+     "doi": "10.1109/TPEL.2002.807092"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "peng2007",
+    "entry_type": "article",
+    "fields": {
+     "author": "H. Peng and D. Prodi{\\'c} and A. Alarcon and D. Maksimovic",
+     "title": "Modeling of Quantization Effects in Digitally Controlled {DC-DC} Converters",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "22",
+     "number": "1",
+     "pages": "208--215",
+     "year": "2007",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/1354763}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "maksimovic2007",
+    "entry_type": "article",
+    "fields": {
+     "author": "D. Maksimovic and R. Zane",
+     "title": "Small-Signal Discrete-Time Modeling of Digitally Controlled {PWM} Converters",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "22",
+     "number": "6",
+     "pages": "2552--2556",
+     "year": "2007",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/4371555}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "maksimovic2004",
+    "entry_type": "inproceedings",
+    "fields": {
+     "author": "D. Maksimovic and R. Zane and R. Erickson",
+     "title": "Impact of Digital Control in Power Electronics",
+     "booktitle": "Proc. 16th Int. Symp. Power Semiconductor Devices and ICs (ISPSD)",
+     "year": "2004",
+     "pages": "13--22",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/1332844}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "hu2008",
+    "entry_type": "article",
+    "fields": {
+     "author": "H. Hu and V. Yousefzadeh and D. Maksimovic",
+     "title": "Nonuniform {A/D} Quantization for Improved Dynamic Responses of Digitally Controlled {DC-DC} Converters",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "23",
+     "number": "4",
+     "pages": "1998--2005",
+     "year": "2008",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/4547438}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "chen2003",
+    "entry_type": "article",
+    "fields": {
+     "author": "J. Chen and A. Prodi{\\'c} and R. W. Erickson and D. Maksimovic",
+     "title": "Predictive Digital Current Programmed Control",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "18",
+     "number": "1",
+     "pages": "411--419",
+     "year": "2003",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/1187460}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "bibian2002",
+    "entry_type": "article",
+    "fields": {
+     "author": "S. Bibian and H. Jin",
+     "title": "High Performance Predictive Dead-Beat Digital Controller for {DC} Power Supplies",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "17",
+     "number": "3",
+     "pages": "420--427",
+     "year": "2002",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/1004250}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "yousefzadeh2007",
+    "entry_type": "inproceedings",
+    "fields": {
+     "author": "V. Yousefzadeh and M. Shirazi and D. Maksimovic",
+     "title": "Minimum Phase Response in Digitally Controlled Boost and Flyback Converters",
+     "booktitle": "Proc. IEEE Appl. Power Electron. Conf. (APEC)",
+     "year": "2007",
+     "pages": "865--870",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/4195820}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "vijayalakshmi2014",
+    "entry_type": "article",
+    "fields": {
+     "author": "S. Vijayalakshmi and T. Sree Renga Raja",
+     "title": "Time Domain Based Digital Controller for Buck-Boost Converter",
+     "journal": "J. Electr. Eng. Technol.",
+     "volume": "9",
+     "number": "5",
+     "pages": "1551--1561",
+     "year": "2014",
+     "note": "Available: \\url{https://doi.org/10.5370/JEET.2014.9.5.1551}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "viswanatha2020",
+    "entry_type": "article",
+    "fields": {
+     "author": "V. Viswanatha and R. V. S. Reddy and Rajeswari",
+     "title": "Characterization of Analog and Digital Control Loops for Bidirectional Buck-Boost Converter Using {PID/PIDN} Algorithms",
+     "journal": "J. Electr. Syst. Inf. Technol.",
+     "volume": "7",
+     "number": "1",
+     "year": "2020",
+     "note": "Available: \\url{https://doi.org/10.1186/s43067-020-00015-6}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "erickson2001",
+    "entry_type": "book",
+    "fields": {
+     "author": "R. W. Erickson and D. Maksimovic",
+     "title": "Fundamentals of Power Electronics",
+     "edition": "2nd",
+     "publisher": "Kluwer Academic Publishers",
+     "year": "2001",
+     "note": "Available: \\url{https://link.springer.com/book/10.1007/b100747}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "alobaidi2025",
+    "entry_type": "article",
+    "fields": {
+     "author": "N. A. Al-Obaidi and A. K. Nawar",
+     "title": "End-to-End Quantization Co-Design for {MHz} {GaN} Converters Using Dither and Sigma-Delta Modulation",
+     "journal": "Edison J. Electr. Electron. Eng.",
+     "volume": "3",
+     "pages": "65--75",
+     "year": "2025",
+     "note": "Available: \\url{https://doi.org/10.62909/ejeee.2025.007}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "gonzalez2020",
+    "entry_type": "article",
+    "fields": {
+     "author": "C. Gonz{\\'a}lez-Casta{\\~n}o and C. Restrepo and R. Giral and E. Vidal-Idiarte and J. Calvente",
+     "title": "ADC Quantization Effects in Two-Loop Digital Current Controlled {DC-DC} Power Converters: Analysis and Design Guidelines",
+     "journal": "Applied Sciences",
+     "volume": "10",
+     "number": "20",
+     "pages": "7179",
+     "year": "2020",
+     "note": "Available: \\url{https://doi.org/10.3390/app10207179}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "lukic2007",
+    "entry_type": "article",
+    "fields": {
+     "author": "Z. Lukic and N. Rahman and A. Prodi{\\'c}",
+     "title": "Multibit {Sigma-Delta} {PWM} Digital Controller {IC} for {DC-DC} Converters Operating at Switching Frequencies Beyond 10 {MHz}",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "22",
+     "number": "5",
+     "pages": "1693--1707",
+     "year": "2007",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/4300890}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "zhao2007",
+    "entry_type": "article",
+    "fields": {
+     "author": "Z. Zhao and A. Prodi{\\'c}",
+     "title": "Limit-Cycle Oscillations Based Auto-Tuning System for Digitally Controlled {DC-DC} Power Supplies",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "22",
+     "number": "6",
+     "pages": "2211--2222",
+     "year": "2007",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/4371570}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "norris2008",
+    "entry_type": "inproceedings",
+    "fields": {
+     "author": "M. Norris and L. M. Platon and E. Alarcon and D. Maksimovic",
+     "title": "Quantization Noise Shaping in Digital {PWM} Converters",
+     "booktitle": "Proc. IEEE Power Electron. Specialists Conf. (PESC)",
+     "year": "2008",
+     "pages": "127--133",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/4591912}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "syed2004",
+    "entry_type": "inproceedings",
+    "fields": {
+     "author": "A. Syed and E. Ahmed and E. Alarcon and D. Maksimovic",
+     "title": "Digital Pulse Width Modulator Architectures",
+     "booktitle": "Proc. IEEE Power Electron. Specialists Conf. (PESC)",
+     "year": "2004",
+     "pages": "4689--4695",
+     "note": "Available: \\url{https://ieeexplore.ieee.org/document/1354828}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "patella2003",
+    "entry_type": "article",
+    "fields": {
+     "author": "B. J. Patella and A. Prodi{\\'c} and A. Zirger and D. Maksimovic",
+     "title": "High-Frequency Digital {PWM} Controller {IC} for {DC-DC} Converters",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "18",
+     "number": "1",
+     "pages": "438--446",
+     "year": "2003",
+     "note": "Available: \\url{https://www.ele.utoronto.ca/power_management/jp2.pdf}"
+    }
+   },
+   {
+    "_type": "BibEntry",
+    "key": "liu2009",
+    "entry_type": "article",
+    "fields": {
+     "author": "Y.-F. Liu and E. Meyer and X. Liu",
+     "title": "Recent Developments in Digital Control Strategies for {DC/DC} Switching Power Converters",
+     "journal": "IEEE Trans. Power Electron.",
+     "volume": "24",
+     "number": "11",
+     "pages": "2567--2577",
+     "year": "2009",
+     "note": "Available: \\url{https://doi.org/10.1109/TPEL.2009.2030809}"
+    }
+   }
+  ]
+ },
+ "save_path": "/home/touhid/Documents/texflowmcp/workspace/variants/ieee-access.texflow.json",
+ "shared": {},
+ "variants": [
+  "ieee-access.texflow.json"
+ ]
 }

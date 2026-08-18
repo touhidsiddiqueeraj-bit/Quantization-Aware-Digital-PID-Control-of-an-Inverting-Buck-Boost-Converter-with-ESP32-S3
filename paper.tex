@@ -6,9 +6,16 @@
 \IEEEoverridecommandlockouts
 \doi{}
 \IEEEpubid{\begin{minipage}{\textwidth}\footnotesize This work is licensed under a Creative Commons Attribution 4.0 License. For more information, see \href{https://creativecommons.org/licenses/by/4.0/}{https://creativecommons.org/licenses/by/4.0/}.\end{minipage}}
-\markboth{Syeda Salsabil Islam Ariya}{Quantization-Aware Digital PID Control of an Inverting Buck–Boost Converter with ESP32-S3: Measured Latency, Effective-Resolution, and Adaptive Update Management}
+\markboth{Hussain Touhid Siddiquee}{Quantization-Aware Digital PID Control of an Inverting Buck–Boost Converter with ESP32-S3: Measured Latency, Effective-Resolution, and Adaptive Update Management}
 \title{Quantization-Aware Digital PID Control of an Inverting Buck–Boost Converter with ESP32-S3: Measured Latency, Effective-Resolution, and Adaptive Update Management}
-\author{Syeda Salsabil Islam Ariya and Jasimul Islam Chowdhury and Hussain Touhid Siddiquee}
+\author{\IEEEauthorblockN{Hussain Touhid Siddiquee}
+\IEEEauthorblockA{\textit{Leading University, Sylhet}}
+\and
+\IEEEauthorblockN{Syeda Salsabil Islam Ariya}
+\IEEEauthorblockA{\textit{Leading University, Sylhet}}
+\and
+\IEEEauthorblockN{Jasimul Islam Chowdhury}
+\IEEEauthorblockA{\textit{Leading University, Sylhet}}}
 
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -238,16 +245,6 @@ poor (2×,6,6) & 5.40 / 28.9 & 5.11 / 27.7 & 59.3 / 561* \\
 
 
 
-\section{Conclusion}
-
-This paper established how sampling period, ADC quantization, PWM resolution, and real-time computational latency jointly shape the closed-loop performance of an ESP32-S3-controlled inverting buck-boost converter. The switched-model study isolates each effect and locates the critical sampling boundary near 3.5-4$\times T_{sw}$; the embedded implementation then measures what simulation cannot: a 65\,$\mu$s control-loop latency dominated by ADC acquisition, 1.3\textbackslash{}\% CPU utilization, and an acquisition noise floor that masks the quantization effects the simulation predicts. Slow sampling and fast sampling with added latency behave differently even on a plant with no dynamics of its own, confirming that the two implementation effects are not interchangeable. A lightweight quantization-aware adaptive PID switches between achievable schedules using a measured error/activity indicator with hysteresis, holds steady-state error below 40\,mV, and cuts controller-update frequency by 84\textbackslash{}\%. The contributions are the integration, characterization, and experimental resource-aware validation of these effects on one platform, rather than any single technique in isolation. The on-chip ADC's acquisition time is the binding constraint of this platform; future work with a faster external ADC or a real power stage would place the controller inside the simulated critical region and test directly whether the adaptive framework remains necessary at higher rates.
-
-
-\section{Acknowledgment}
-
-The authors thank Tareq Anwar Shikdar for guidance; no external funding was received.
-
-
 \section{Experimental Closed-Loop Platform}
 
 The closed-loop platform is the ESP32-S3 (240\,MHz, Arduino core) with a 100\,kHz LEDC PWM on GPIO2 shorted to ADC1 input GPIO1, so the sensed pin voltage is the duty-scaled rail, mapped into the paper's $V_{ref}=-12$\,V, FS$=24$\,V frame by the inverting gain $V_{out} = -V_{pin}\cdot 24/3.3$. This reproduces the buck-boost sign inversion and places $V_{ref}$ exactly at the half-scale code, at which the paper's ADC coincidence is active. The plant is intentionally not a real power stage: it is an emulated first-order plant whose dynamics are the pin-gain plus the EMA sensor filter, so the platform isolates the digital-implementation effects (sampling, quantization, latency, adaptation) that are the subject of this study. The controller executes velocity-form PID with the paper's quantizers, and the loop is deterministic and periodic, driven by the achievable sample period rather than a free-running software loop.
@@ -300,37 +297,47 @@ The controlled DC voltage at the setpoint is identical across effective ADC reso
 
 The measured achievable periods form a ladder from $73\,\mu$s (raw single read, N=1) to $6.84\,$ms (N=64 averaged reads). Fig.~\ref{fig:sched} sweeps all four rungs with the frozen paper gains and with the bandwidth-matched retuned gains ($k_p=0.02$, $k_i$ scaled so $k_i T_s = 3.4\times10^{-3}$). The retuned loop holds steady-state error below 40\,mV on every rung. The observable that changes with schedule is the ripple: it falls from 4.9\,V peak-to-peak at N=1 to 1.5\,V at N=64, tracking the measured $\sigma\propto 1/\sqrt{N}$ noise floor rather than any quantization effect. Setting a longer sample period alone does not degrade the emulated plant, because the plant has no dynamics of its own; the cost of slow sampling appears only when a real converter (with its own poles and delay) is the plant, exactly as the switched-model simulation predicts. Separately, injecting an additional computational delay of 0-200\,$\mu$s at the fast schedule raises the effective period from 73 to 274\,$\mu$s and grows the IAE by a factor of 4.5 (Fig.~\ref{fig:latinj}). Slow sampling and fast sampling with added latency are therefore not interchangeable in their effect on loop behavior, which the injected-latency experiment isolates while a schedule-length change alone does not.
 
-\begin{figure*}[htbp]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=0.8\textwidth]{/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_sched.png}
+\includegraphics[width=0.95\columnwidth]{/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_sched.png}
 \caption{Achievable-schedule sweep (top) and injected-latency experiment (bottom) on the ESP32-S3. Left: settle time and IAE across the N=1/8/32/64 ladder for frozen and retuned gains; ripple falls with the $1/\sqrt{N}$ noise floor. Right: injecting 0-200\,$\mu$s computational delay at the fast schedule grows IAE by 4.5$\times$, separating slow sampling from fast-sampling-plus-latency.}
 \label{fig:sched}
-\end{figure*}
+\end{figure}
 
-\begin{figure*}[htbp]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=0.8\textwidth]{/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_latinj.png}
+\includegraphics[width=0.95\columnwidth]{/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_latinj.png}
 \caption{Injected computational latency at the fast schedule: effective period grows 73 to 274\,$\mu$s and IAE by 4.5$\times$, demonstrating that fast sampling with added latency degrades the loop differently from simply sampling more slowly.}
 \label{fig:latinj}
-\end{figure*}
+\end{figure}
 
 
 \subsection{Adaptive Update Management}
 
 Because latency is dominated by the ADC rather than the arithmetic, the controller's cost is best managed by reducing how often the hardware is asked to sample-and-compute. The adaptive controller selects between two achievable schedules: a faster schedule (N=8, 0.86\,ms period) and a slower one (N=64, 6.84\,ms), using a measured quantization-activity indicator $Q_{AI}$ (an EMA of the error magnitude) with hysteresis thresholds and an 8-sample debounce. It leaves the fast schedule only when the smoothed error has settled below the noise-aware band, returns to fast mode when the error exceeds a large threshold, and activates a $\pm$1-LSB duty dither only when the loop is settled but $Q_{AI}$ stays elevated (a limit-cycle hint), with its own hysteretic threshold to avoid toggling. Fig.~\ref{fig:adaptive} shows the run: startup transient and a set-point step from $-12$ to $-6$\,V at 2.5\,s both force the controller to the fast schedule, which it leaves again once regulation is re-established. Over the 6\,s run the controller spends 3.8\textbackslash{}\% of the time fast, 87.2\textbackslash{}\% slow, and 9.0\textbackslash{}\% dithering, giving an update reduction ratio $S_R = 1 - f_{avg}/f_{fast}$ of 0.84 while holding steady-state error within the same $\pm$40\,mV band as the fixed-rate loop. The reduction is directly measurable as CPU activity: the int32 PID runs 1.3\textbackslash{}\% of the loop budget at fast rate and proportionally less in slow mode. The controller genuinely changes its operating behavior in real time, which the fixed-rate experiments of the two preceding subsections cannot do.
 
-\begin{figure*}[htbp]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=0.8\textwidth]{/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_adaptive.png}
+\includegraphics[width=0.95\columnwidth]{/home/touhid/Documents/powerpaper/esp32_feas/results/embedded/fig_v2_adaptive.png}
 \caption{Adaptive schedule+dithering run on the ESP32-S3 (N=8 fast, N=64 slow). Top: sensed output with a set-point step from $-12$ to $-6$\,V at 2.5\,s (dashed). Middle: duty. Bottom: selected mode. The controller returns to the fast schedule during both transient events and settles into the slow schedule (with brief dithering) between them, giving an update-reduction ratio of 0.84.}
 \label{fig:adaptive}
-\end{figure*}
+\end{figure}
 
 
 
 \section{Discussion}
 
 Taken together, the three levels form a consistent picture. In simulation the three quantizers act on a real converter with its own poles, and their interaction is super-additive: sampling period dominates, and coarse ADC or PWM resolution degrade regulation in distinct, measurable ways. On the ESP32-S3 the same controller faces a different bottleneck: the on-chip ADC's 60-89\,$\mu$s acquisition time forces every achievable schedule into the sampling regime the simulation deems unstable for a 100\,kHz converter, and the acquisition noise floor swamps the quantization effects the simulation predicts. The compute is almost free (1.3\textbackslash{}\% CPU); the cost of digital control lives in acquisition and update, not arithmetic. That asymmetry is why the quantization-aware adaptive controller is not an enhancement but a necessity: by spending sampling effort only when the error or the activity indicator demands it, it recovers regulation quality at 16\textbackslash{}\% of the update frequency, and its measured latency, occupancy, and update-reduction figures are the quantities an otherwise purely simulative study could only assume. The negative results are as informative as the positive ones: the hardware cannot reach the 3.5-4$\times T_{sw}$ boundary, and the effective-resolution sweep shows that quantization limits become visible only below a noise floor this ADC cannot reach at a useful schedule.
+
+
+\section{Conclusion}
+
+This paper established how sampling period, ADC quantization, PWM resolution, and real-time computational latency jointly shape the closed-loop performance of an ESP32-S3-controlled inverting buck-boost converter. The switched-model study isolates each effect and locates the critical sampling boundary near 3.5-4$\times T_{sw}$; the embedded implementation then measures what simulation cannot: a 65\,$\mu$s control-loop latency dominated by ADC acquisition, 1.3\textbackslash{}\% CPU utilization, and an acquisition noise floor that masks the quantization effects the simulation predicts. Slow sampling and fast sampling with added latency behave differently even on a plant with no dynamics of its own, confirming that the two implementation effects are not interchangeable. A lightweight quantization-aware adaptive PID switches between achievable schedules using a measured error/activity indicator with hysteresis, holds steady-state error below 40\,mV, and cuts controller-update frequency by 84\textbackslash{}\%. The contributions are the integration, characterization, and experimental resource-aware validation of these effects on one platform, rather than any single technique in isolation. The on-chip ADC's acquisition time is the binding constraint of this platform; future work with a faster external ADC or a real power stage would place the controller inside the simulated critical region and test directly whether the adaptive framework remains necessary at higher rates.
+
+
+\section{Acknowledgment}
+
+The authors thank Tareq Anwar Shikdar for guidance; no external funding was received.
 
 
 \bibliographystyle{IEEEtran}
