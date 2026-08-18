@@ -328,6 +328,273 @@ static void mode_hw() {
     Serial.println("CSV,HDONE");
 }
 
+// ---------------- v2 modes: L / R / S / X / A ----------------
+float g_t[8000], g_v[8000], g_d[8000], g_st[8000];   // shared log buffers
+// Note: mode_closed() (v1) already measures the achieved ADC-bound sample
+// period; the v2 modes reuse the same read path but add (a) a latency
+// breakdown, (b) effective-resolution sweeps, (c) an explicit schedule
+// sweep at the achievable periods, (d) injected computational latency, and
+// (e) an adaptive schedule/dithering controller.
+
+// shared loop metrics from a run: fill arrays, caller prints
+struct LoopStats {
+    double ts_meas_us;        // measured mean period
+    double rate_khz;
+    float ss_mean, ss_min, ss_max, d_mean, d_min_s, d_max_s;
+    double ss_err, settle_ms;
+    double iae, itae;
+    uint32_t n;
+};
+
+static void loop_stats(const float *t_ms, const float *v, const float *d,
+                       int n, float vref, LoopStats &s, float settle_band) {
+    s.n = n;
+    double t_end = t_ms[n - 1];
+    s.rate_khz = (n - 1) / (t_end * 1.0) / 1e3;         // t in ms -> kHz
+    s.ts_meas_us = t_end * 1000.0 / (n - 1);
+    int sw = n - (n / 5);                                 // settled window
+    int wn = n - sw;
+    double m_sum = 0, d_sum = 0;
+    s.ss_min = 1e9f; s.ss_max = -1e9f; s.d_min_s = 1e9f; s.d_max_s = -1e9f;
+    for (int i = sw; i < n; i++) {
+        m_sum += v[i]; d_sum += d[i];
+        if (v[i] < s.ss_min) s.ss_min = v[i];
+        if (v[i] > s.ss_max) s.ss_max = v[i];
+        if (d[i] < s.d_min_s) s.d_min_s = d[i];
+        if (d[i] > s.d_max_s) s.d_max_s = d[i];
+    }
+    s.ss_mean = m_sum / wn; s.d_mean = d_sum / wn;
+    s.ss_err = s.ss_mean - vref;
+    s.settle_ms = -1;
+    for (int i = n - 1; i >= 0; i--)
+        if (v[i] < vref - settle_band || v[i] > vref + settle_band) { s.settle_ms = t_ms[i]; break; }
+    s.iae = 0; s.itae = 0;
+    for (int i = 1; i < n; i++) {
+        double e = v[i] - vref, ep = v[i - 1] - vref;
+        double dt = (t_ms[i] - t_ms[i - 1]) * 1e-3;
+        double ea = 0.5 * (fabs(e) + fabs(ep)) * dt;
+        s.iae += ea; s.itae += ea * (t_ms[i] * 1e-3);
+    }
+}
+
+// run one closed loop over the jumper at a target schedule (avg_n reads per
+// sample) with a fixed set of gain-recipes; vectors passed by caller.
+
+// ---------------- Mode L: latency breakdown ----------------
+static void mode_latency() {
+    const int N = 5000;
+    auto tmin = [&](uint32_t a, uint32_t b) { return (b > a) ? (b - a) : 1; };
+    uint32_t mn = 0xFFFFFFFF, mx = 0; uint64_t sm = 0;
+    for (int i = 0; i < N; i++) { uint32_t a = cc(); (void)read_vpin(); uint32_t dt = tmin(a, cc()); if (dt < mn) mn = dt; if (dt > mx) mx = dt; sm += dt; }
+    Serial.printf("CSV,L,adc_mv,%.2f,%.2f,%.2f\n", ns_span(mn), sm * 1000.0 / MHZ / N, ns_span(mx));
+    mn = 0xFFFFFFFF; mx = 0; sm = 0;
+    for (int i = 0; i < N; i++) { uint32_t a = cc(); (void)read_vpin_raw(); uint32_t dt = tmin(a, cc()); if (dt < mn) mn = dt; if (dt > mx) mx = dt; sm += dt; }
+    Serial.printf("CSV,L,adc_raw,%.2f,%.2f,%.2f\n", ns_span(mn), sm * 1000.0 / MHZ / N, ns_span(mx));
+    PIDF pid; pid.kp = KP; pid.ki = KI; pid.kd = KD; pid.ts = 6.2e-5f;
+    mn = 0xFFFFFFFF; mx = 0; sm = 0;
+    for (int i = 0; i < N; i++) { uint32_t a = cc(); float mq = fqabs(-12.0f + (i & 63) * 0.01f, 8); pid.step(mq, VREF); (void)fqduty(pid.d, 8); uint32_t dt = tmin(a, cc()); if (dt < mn) mn = dt; if (dt > mx) mx = dt; sm += dt; }
+    Serial.printf("CSV,L,comp_f32,%.2f,%.2f,%.2f\n", ns_span(mn), sm * 1000.0 / MHZ / N, ns_span(mx));
+    PIDQ pq; pq.kp24 = (int32_t)(KP * (1 << 24)); pq.kits24 = (int32_t)(KI * 6.2e-5f * (1 << 24)); pq.kdts24 = (int32_t)((KD / 6.2e-5f) * (1 << 24));
+    mn = 0xFFFFFFFF; mx = 0; sm = 0;
+    for (int i = 0; i < N; i++) { uint32_t a = cc(); int32_t mq = q1q10(to_q10(-12.0f + (i & 63) * 0.01f), ADC_FS / 256.0f); pq.step(mq - to_q10(VREF)); (void)q1duty(pq.d_q15, 256); uint32_t dt = tmin(a, cc()); if (dt < mn) mn = dt; if (dt > mx) mx = dt; sm += dt; }
+    Serial.printf("CSV,L,comp_i32,%.2f,%.2f,%.2f\n", ns_span(mn), sm * 1000.0 / MHZ / N, ns_span(mx));
+    mn = 0xFFFFFFFF; mx = 0; sm = 0;
+    pwm_init(RES_BITS);
+    pwm_set(0.5f);
+    for (int i = 0; i < N; i++) { uint32_t a = cc(); pwm_set(0.25f + (i & 1) * 0.5f); uint32_t dt = tmin(a, cc()); if (dt < mn) mn = dt; if (dt > mx) mx = dt; sm += dt; }
+    Serial.printf("CSV,L,pwm,%.2f,%.2f,%.2f\n", ns_span(mn), sm * 1000.0 / MHZ / N, ns_span(mx));
+    pwm_set(0.5f);
+    Serial.println("CSV,LDONE");
+}
+
+// ---------------- Mode R: effective resolution grid ----------------
+static void mode_effres() {
+    // sweep effective ADC (12/10/8/6) and effective PWM (8/6/4) resolutions
+    // using the 8-bit LEDC wrapper + digital reduction, in the 8-bit sense.
+    // Real PWM resolution at 100 kHz is capped at 8-bit (Mode H); effective
+    // resolution below that is produced by re-quantizing the *commanded* duty
+    // (duty rounding) which the LEDC then writes at its native 8-bit wing.
+    const int N = 1200;
+    extern float g_t[], g_v[], g_d[], g_st[];
+    float *t = g_t, *v = g_v, *d = g_d;
+    const int AVG = 64;                    // low-noise schedule (~6.8 ms)
+    // sweep ADC 12/10/8/6 at PWM=8, then PWM 6/4 at ADC=8 (6 cells)
+    const int ua[6] = {12, 10, 8, 6, 8, 8};
+    const int up[6] = {8, 8, 8, 8, 6, 4};
+    for (int c = 0; c < 6; c++) {
+                        int ab = ua[c], pb = up[c];
+            pwm_init(RES_BITS);
+            // measure achieved period first (ADC-bound, independent of target)
+            uint32_t t2 = esp_timer_get_time();
+            for (int m2 = 0; m2 < 8; m2++) (void)vout_of(read_vpin_avg(AVG));
+            float ts_meas = (float)(esp_timer_get_time() - t2) / 8.0f;   // us
+            uint64_t t0 = esp_timer_get_time();
+            float filt = 0; bool fi = false;
+            PIDF pf; pf.kp = 0.02f; pf.kd = 0.0f;
+            pf.ki = 0.0034f / (ts_meas * 1e-6f);   // keep ki*ts = 3.4e-3
+            pf.ts = ts_meas * 1e-6f;
+            for (int i = 0; i < N; i++) {
+                float mr = vout_of(read_vpin_avg(AVG));
+                float m = fi ? 0.08f * mr + 0.92f * filt : mr; filt = m; fi = true;
+                float mq = fqabs(m, ab);
+                pf.step(mq, VREF);
+                float dq = fqduty(pf.d, pb);
+                pwm_set(dq);
+                t[i] = (float)(esp_timer_get_time() - t0) / 1e3f; v[i] = m; d[i] = dq;
+            }
+            LoopStats s; loop_stats(t, v, d, N, VREF, s, 0.5f);
+            float ripple_mv = (s.ss_max - s.ss_min) * 1000.0f;
+            float d_ripple = s.d_max_s - s.d_min_s;
+            Serial.printf("CSV,R,%d,%d,%.1f,%.1f,%.3f,%.1f,%.3f,%.3f,%.3f\n",
+                ab, pb, s.ts_meas_us, s.ss_err * 1000.0f, ripple_mv, s.settle_ms,
+                s.d_mean, d_ripple, s.iae);
+    }
+    pwm_set(0.5f);
+    Serial.println("CSV,RDONE");
+}
+
+// ---------------- Mode S: schedule sweep (achievable periods) ----------------
+static void mode_schedule() {
+    // sweep avg_n = {1,8,32,64}: these map to ADC-bound achievable periods
+    // ~62 us / ~0.5 ms / ~2 ms / ~6.8 ms. Both frozen and retuned gains.
+    extern float g_t[], g_v[], g_d[], g_st[];
+    float *t = g_t, *v = g_v, *d = g_d;
+    for (int avg : {1, 8, 32, 64}) {
+        for (int ret : {0, 1}) {
+            float kp = 0.05f, ki = 100.0f, kd = 1e-5f;
+            pwm_init(RES_BITS);
+            // measure achieved period for THIS avg_n first
+            uint32_t t2 = esp_timer_get_time();
+            for (int m2 = 0; m2 < 8; m2++) (void)vout_of(read_vpin_avg(avg));
+            float ts_meas = (float)(esp_timer_get_time() - t2) / 8.0f;   // us
+            uint64_t t0 = esp_timer_get_time();
+            float filt = 0; bool fi = false;
+            PIDF pf; pf.kp = kp; pf.ki = ki; pf.kd = kd; pf.ts = ts_meas * 1e-6f;
+            if (ret) { pf.kp = 0.02f; pf.ki = 0.0034f / (ts_meas * 1e-6f); pf.kd = 0.0f; }
+            int n = avg <= 8 ? 3000 : 1200;
+            for (int i = 0; i < n; i++) {
+                float mr = vout_of(read_vpin_avg(avg));
+                float m = fi ? 0.08f * mr + 0.92f * filt : mr; filt = m; fi = true;
+                pf.step(fqabs(m, 8), VREF);
+                float dq = fqduty(pf.d, 8);
+                pwm_set(dq);
+                t[i] = (float)(esp_timer_get_time() - t0) / 1e3f; v[i] = m; d[i] = dq;
+            }
+            LoopStats s; loop_stats(t, v, d, n, VREF, s, 0.5f);
+            float ripple_mv = (s.ss_max - s.ss_min) * 1000.0f;
+            float d_ripple = s.d_max_s - s.d_min_s;
+            Serial.printf("CSV,S,%d,%d,%.1f,%.3f,%.1f,%.3f,%.1f,%.4f,%.3f,%.3f\n",
+                avg, ret, s.ts_meas_us, s.rate_khz, s.settle_ms,
+                s.ss_err, ripple_mv, d_ripple, s.d_mean, s.iae);
+        }
+    }
+    pwm_set(0.5f);
+    Serial.println("CSV,SDONE");
+}
+
+// ---------------- Mode X: injected computational latency ----------------
+static void mode_latency_inject() {
+    // raw schedule (avg_n=1) with an injected busy-wait delay per sample.
+    const int N = 2000;
+    extern float g_t[], g_v[], g_d[], g_st[];
+    float *t = g_t, *v = g_v, *d = g_d;
+    const float dlys_us[] = {0.0f, 20.0f, 60.0f, 200.0f};
+    for (float dl : dlys_us) {
+        pwm_init(RES_BITS);
+        uint32_t t2 = esp_timer_get_time();
+        for (int m2 = 0; m2 < 8; m2++) (void)vout_of(read_vpin_avg(1));
+        float ts_meas = (float)(esp_timer_get_time() - t2) / 8.0f;
+        uint64_t t0 = esp_timer_get_time();
+        float filt = 0; bool fi = false;
+        PIDF pf; pf.kp = 0.02f; pf.kd = 0.0f;
+        pf.ki = 0.0034f / (ts_meas * 1e-6f);   // bandwidth-matched
+        pf.ts = ts_meas * 1e-6f;
+        for (int i = 0; i < N; i++) {
+            float mr = vout_of(read_vpin_avg(1));
+            float m = fi ? 0.08f * mr + 0.92f * filt : mr; filt = m; fi = true;
+            pf.step(fqabs(m, 8), VREF);
+            pwm_set(fqduty(pf.d, 8));
+            if (dl > 0.0f) delayMicroseconds((uint32_t)dl);
+            t[i] = (float)(esp_timer_get_time() - t0) / 1e3f; v[i] = m; d[i] = pf.d;
+        }
+        LoopStats s; loop_stats(t, v, d, N, VREF, s, 0.5f);
+        float ripple_mv = (s.ss_max - s.ss_min) * 1000.0f;
+        Serial.printf("CSV,X,%.1f,%.1f,%.1f,%.3f,%.1f,%.3f\n",
+            dl, s.ts_meas_us, s.settle_ms, s.ss_err, ripple_mv, s.iae);
+    }
+    pwm_set(0.5f);
+    Serial.println("CSV,XDONE");
+}
+
+// ---------------- Mode A: adaptive schedule + dithering ----------------
+// Quantization-activity indicator QAI = EMA of |e| (output-frame volts).
+// Hysteresis: |e| > EH  -> fast schedule (avg_n=1); |e| < EL and QAI < QL
+// -> slow schedule (avg_n=32); otherwise hold. Dithering activates when
+// |e| < EL but QAI > QH (quantization-induced oscillation) to break the
+// limit cycle. Update period resets per selected schedule.
+static void mode_adaptive() {
+    extern float g_t[], g_v[], g_d[], g_st[];
+    float *t = g_t, *v = g_v, *d = g_d;
+    int *st = (int *)g_st;       // 0=fast, 1=slow, 2=dithering
+    int n = 0;
+    pwm_init(RES_BITS);          // LEDC must be configured before pwm_set
+    // Thresholds sit between the two noise floors:
+    //   fast N=8  -> ~0.9 V rms post-EMA |e|
+    //   slow N=64 -> ~0.2 V rms post-EMA |e|
+    const float EH = 1.5f, EL = 0.75f, QH = 0.45f, QL = 0.25f;
+    const int DEBOUNCE = 8;      // consecutive samples must agree to switch
+    uint64_t t0 = esp_timer_get_time();
+    float filt = 0; bool fi = false;
+    PIDF pf; pf.kp = 0.02f; pf.kd = 0.0f;
+    float qai = 0.0f; bool fast = true; bool dither = false;
+    int db = 0;
+    float settle_obs = 12.0f;         // heavily smoothed |e| for mode decision
+    const float SO_A = 0.02f;         // long time constant (~50 fast samples)
+    float dither_phase = 0.5f;
+    float vref = VREF;
+    while (n < 8000 && (esp_timer_get_time() - t0) < 6e6) {
+        float wall = (float)(esp_timer_get_time() - t0) / 1e3f;
+        if (wall > 2500.0f && wall < 2600.0f) vref = -6.0f;  // set-point step
+        int avg = fast ? 8 : 64;
+        pf.ki = fast ? 3.94f : 0.497f;   // ki*ts = 3.4e-3 constant (time-step-aware)
+        pf.ts = (fast ? 863e-6f : 6.84e-3f);
+        float mr = vout_of(read_vpin_avg(avg));
+        float m = fi ? 0.08f * mr + 0.92f * filt : mr; filt = m; fi = true;
+        float e = m - vref;
+        // decision variables: QAI (fast EMA) for dithering, settle_obs
+        // (slow EMA) for schedule switching on the MEAN error, immune to the
+        // per-sample noise floor.
+        qai = 0.5f * fabsf(e) + 0.5f * qai;
+        settle_obs = SO_A * fabsf(e) + (1 - SO_A) * settle_obs;
+        // schedule selection with debounce (time-hysteresis).
+        // Exit fast only on sustained mean settle; re-enter only on large error.
+        bool want_fast = fabsf(e) > EH;
+        bool want_slow = !want_fast && settle_obs < EL;
+        if (!fast && want_fast) { db++; if (db >= DEBOUNCE) { fast = true; db = 0; } }
+        else if (fast && want_slow) { db++; if (db >= DEBOUNCE) { fast = false; db = 0; dither = false; } }
+        else db = 0;
+        // quantization mitigation: dither only in slow mode when QAI is
+        // elevated (limit-cycle hint) but the mean error has settled.
+        if (fast) dither = false;
+        else dither = (fabsf(e) < EL && qai > QH) || (dither && qai > QL);
+        float mq = fqabs(m, 8);
+        pf.step(mq, vref);
+        float dq = fqduty(pf.d, 8);
+        if (dither) {
+            dither_phase = -dither_phase;
+            dq = fqduty(pf.d + dither_phase * 0.004f, 8);   // +-1 LSB (8-bit)
+        }
+        pwm_set(dq);
+        t[n] = wall; v[n] = m; d[n] = dq;
+        st[n] = (dither ? 2 : (fast ? 0 : 1));
+        n++;
+    }
+    pwm_set(0.5f);
+    for (int i = 0; i < n; i++)
+        Serial.printf("CSV,A,%.3f,%.4f,%.4f,%d\n", t[i], v[i], d[i], st[i]);
+    Serial.println("CSV,ADONE");
+}
+
 void setup() {
     Serial.begin(460800);
     delay(300);
@@ -365,6 +632,11 @@ void loop() {
         while (Serial.available()) Serial.read();  // drain
         if (c == 'B') mode_bench();
         else if (c == 'H') mode_hw();
+        else if (c == 'L' || c == 'l') mode_latency();
+        else if (c == 'R' || c == 'r') mode_effres();
+        else if (c == 'S' || c == 's') mode_schedule();
+        else if (c == 'X' || c == 'x') mode_latency_inject();
+        else if (c == 'A' || c == 'a') mode_adaptive();
     }
     delay(10);
 }
