@@ -170,7 +170,7 @@ def main():
     ax[1].plot(xp, [r["iae"] for r in pw8], "s-", color="#d95f02")
     ax[1].set_xlabel("effective PWM resolution (bit)"); ax[1].set_ylabel("IAE")
     ax[1].invert_xaxis()
-    fig.suptitle("Effective-resolution sweep at N=64 schedule (noise floor $\\sigma\\approx0.95$ V)")
+    fig.suptitle("Effective-resolution sweep at N=64 schedule (noise floor $\\sigma\\approx1.5$ V at N=64, output frame)")
     fig.tight_layout(); fig.savefig(os.path.join(OUT, "fig_v2_effres.png"), dpi=200); plt.close(fig)
 
     # fig_v2_sched: settle/IAE vs schedule (frozen vs retuned)

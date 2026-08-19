@@ -5,7 +5,7 @@
     "title": "Quantization-Aware Digital PID Control of an Inverting Buck\u2013Boost Converter with ESP32-S3: Measured Latency, Effective-Resolution, and Adaptive Update Management",
     "author": "Hussain Touhid Siddiquee and Syeda Salsabil Islam Ariya and Jasimul Islam Chowdhury",
     "date": "\\today",
-    "abstract": "Digital control of switching power converters is shaped by three implementation-quantized quantities: the ADC resolution of the sensed output, the DPWM resolution of the commanded duty, and the sampling period at which controller and power stage are synchronized. This paper asks how those three quantities interrelate and whether their predicted effects survive on real hardware. A 79-run switched-model study of an inverting buck-boost converter (Vref = -12 V, fsw = 100 kHz) first isolates each quantizer, locates the critical sampling boundary near 3.5-4x Tsw, and shows the three stages interact super-additively. The same controller is then ported to an ESP32-S3 closed-loop platform whose loop is bound by the on-chip ADC: the raw read takes 60 us, so the fastest achievable loop is about 6x Tsw and useful oversampled loops reach up to nearly 700x Tsw, placing the hardware inside the simulation's predicted unstable regime. Measured latency decomposes into T_ADC = 60 us, T_PID = 0.86 us (int32), and T_PWM = 4.2 us; CPU utilization is 1.3%. An effective-resolution sweep shows the 1.6-1.9 V acquisition noise floor masks the quantization effects the simulation predicts at 27-205 mV. A lightweight quantization-aware adaptive controller switches between achievable schedules by a measured error/ripple indicator and activates duty dithering with hysteresis only near the setpoint, reducing controller-update frequency by roughly 84% while holding the mean steady-state error within +/-20 mV. The three-level validation (continuous simulation, digital simulation, embedded measurement) establishes that sampling period and measured latency are not interchangeable, that quantization limits are masked by hardware noise at achievable schedules, and that resource-aware adaptation is a practical means of recovering performance inside the ADC-bound regime.",
+    "abstract": "Digital control of switching power converters is shaped by three implementation-quantized quantities: the ADC resolution of the sensed output, the DPWM resolution of the commanded duty, and the sampling period at which controller and power stage are synchronized. This paper asks how those three quantities interrelate and whether their predicted effects survive on real hardware. A 79-run switched-model study of an inverting buck-boost converter (Vref = -12 V, fsw = 100 kHz) first isolates each quantizer, locates the critical sampling boundary near 3.5-4x Tsw, and shows the three stages interact super-additively. The same controller is then ported to an ESP32-S3 closed-loop platform whose loop is bound by the on-chip ADC: the raw read takes 60 us, so the fastest achievable loop is about 6x Tsw and useful oversampled loops reach up to about 680x Tsw, placing the hardware inside the simulation's predicted unstable regime. Measured latency decomposes into T_ADC = 60 us, T_PID = 0.86 us (int32), and T_PWM = 4.2 us; CPU utilization is 1.3%. An effective-resolution sweep shows the 1.6-1.9 V acquisition noise floor masks the quantization effects the simulation predicts (from the 27 mV coarse-ADC ripple to the 205 mV 6-bit-PWM limit cycle). A lightweight quantization-aware adaptive controller switches between achievable schedules by a measured error/ripple indicator and activates duty dithering with hysteresis only near the setpoint, reducing controller-update frequency by roughly 84% while holding the mean steady-state error within +/-40 mV. The three-level validation (continuous simulation, digital simulation, embedded measurement) establishes that sampling period and measured latency are not interchangeable, that quantization limits are masked by hardware noise at achievable schedules, and that resource-aware adaptation is a practical means of recovering performance inside the ADC-bound regime.",
     "keywords": [
       "digital PID control",
       "quantization",
@@ -356,7 +356,7 @@
             },
             {
               "_type": "Paragraph",
-              "text": "PWM resolution below 8 bits dominates the limit cycle (Fig.~\\ref{fig:pwm}): 6-bit PWM adds a 204.8\\,mV ripple versus $\\approx$39.5\\,mV at 12/10/8-bit. Duty quantization is the direct source of steady-state ripple, as predicted by limit-cycle analysis \\cite{peterchev2003,peng2007}; at 6-bit the DPWM step is $2/64=31.25$\\,mV of duty, which maps through the control-to-output gain into the observed 204.8\\,mV ripple. This is precisely the regime addressed by finer DPWM controller implementations \\cite{patella2003,syed2004} and by noise-shaping modulators \\cite{norris2008}."
+              "text": "PWM resolution below 8 bits dominates the limit cycle (Fig.~\\ref{fig:pwm}): 6-bit PWM adds a 204.8\\,mV ripple versus $\\approx$39.5\\,mV at 12/10/8-bit. Duty quantization is the direct source of steady-state ripple, as predicted by limit-cycle analysis \\cite{peterchev2003,peng2007}; at 6-bit the duty grid step is 1 LSB $=1/64$, and the loop settles into a limit cycle toggling between the adjacent codes 31/64 and 32/64 around the $D\\approx0.5$ operating point, whose measured peak-to-peak output excursion is 204.8\\,mV. The static code-to-code shift at this operating point is larger, $|dV_{out}/dD|\\cdot 1/64 \\approx 0.73$\\,V with $|dV_{out}/dD| = V_{in}/(1-D)^2 \\approx 48$\\,V per unit duty; the dynamic ripple is smaller because the output capacitor averages the excursion over the limit-cycle period. This is precisely the regime addressed by finer DPWM controller implementations \\cite{patella2003,syed2004} and by noise-shaping modulators \\cite{norris2008}."
             },
             {
               "_type": "Figure",
@@ -406,7 +406,7 @@
           "content": [
             {
               "_type": "Paragraph",
-              "text": "Table~\\ref{tab:dist} summarizes the six disturbance runs (step at $t=60$\\,ms; recovery time $=t_{settle}-60$\\,ms). Both healthy controllers reject input and load steps in under 1.5\\,ms with negligible IAE. The worst configuration never re-regulates within the observation window: it settles into deep DCM chatter with $>$5\\,V of steady-state error and over 160\\,000 DCM cycles per event (Fig.~\\ref{fig:dist})."
+              "text": "Table~\\ref{tab:dist} summarizes the six disturbance runs (step at $t=60$\\,ms; recovery time $=t_{settle}-60$\\,ms). Both healthy controllers reject input and load steps in under 1.5\\,ms with negligible IAE. The worst configuration never re-regulates within the observation window: it settles into deep DCM chatter with $>$5\\,V of steady-state error, accruing 266\\,015 DCM cycles after the input step and 163\\,360 after the load step within the 60\\,ms post-step window --- far above the 127\\,075 cycles the same configuration accrues when undisturbed --- because the loop never settles and keeps crossing the zero-current boundary for the entire window (Fig.~\\ref{fig:dist})."
             },
             {
               "_type": "Table",
@@ -416,49 +416,56 @@
                 "Config",
                 "Event",
                 "Recovery",
-                "|e_ss| / IAE"
+                "|e_ss| / IAE",
+                "DCM (60 ms)"
               ],
               "rows": [
                 [
                   "Continuous",
-                  "Vin step",
-                  "1.43 ms",
-                  "0.0 mV / 0.0014"
+                  "V_in step",
+                  "0.97 ms",
+                  "0.0 mV / 0.0014",
+                  "0"
                 ],
                 [
                   "Continuous",
                   "Load step",
-                  "0.94 ms",
-                  "0.3 mV / 0.0013"
+                  "0.97 ms",
+                  "0.0 mV / 0.0014",
+                  "0"
                 ],
                 [
-                  "Ideal dig.",
-                  "Vin step",
-                  "0.92 ms",
-                  "14.9 mV / 0.0017"
+                  "Ideal digital",
+                  "V_in step",
+                  "1.01 ms",
+                  "0.0 mV / 0.0014",
+                  "0"
                 ],
                 [
-                  "Ideal dig.",
+                  "Ideal digital",
                   "Load step",
-                  "0.84 ms",
-                  "26.1 mV / 0.0019"
+                  "1.00 ms",
+                  "0.0 mV / 0.0014",
+                  "0"
                 ],
                 [
-                  "Worst",
-                  "Vin step",
+                  "Worst (16-bit, 5\u00d7)",
+                  "V_in step",
                   "never",
-                  "8.9 V / 0.535"
+                  "5.0 V / 1.132",
+                  "266,015"
                 ],
                 [
-                  "Worst",
+                  "Worst (16-bit, 5\u00d7)",
                   "Load step",
                   "never",
-                  "5.9 V / 0.353"
+                  "5.0 V / 1.132",
+                  "163,360"
                 ]
               ],
               "position": "htbp",
               "booktabs": true,
-              "width": "0.9\\columnwidth",
+              "width": "",
               "fit": "auto",
               "span_columns": false,
               "ref": ""
@@ -547,7 +554,7 @@
           "content": [
             {
               "_type": "Paragraph",
-              "text": "Table~\\ref{tab:emb} reports the measured split of the control loop, timed with the CPU cycle counter at 240\\,MHz and illustrated in Fig.~\\ref{fig:lat}. The ADC dominates: the calibrated millivolt read averages $89.1\\,\\mu$s, the raw 12-bit read $60.0\\,\\mu$s, and the fastest single read never completes sooner than $59.5\\,\\mu$s. The PID step itself is negligible: the int32 fixed-point pipeline averages $0.86\\,\\mu$s and the float32 pipeline $6.8\\,\\mu$s, so the controller occupies at most 10.4\\% (float) or 1.3\\% (int32) of the loop budget. The LEDC PWM write costs $4.2\\,\\mu$s. The total per-step control latency is $T_{lat} = T_{ADC} + T_{PID} + T_{PWM} \\approx 65\\,\\mu$s, meaning the fastest periodic loop this platform can sustain is about $6\\times T_{sw}$ (10\\,$\\mu$s switching period), and useful oversampled loops reach several hundred times $T_{sw}$ (up to $\\approx680\\times$ at N=64). The hardware therefore operates entirely in the sampling regime the simulation identifies as unstable or critically degraded; this is the central constraint that motivates the adaptive controller presented in the final subsection."
+              "text": "Table~\\ref{tab:emb} reports the measured split of the control loop, timed with the CPU cycle counter at 240\\,MHz and illustrated in Fig.~\\ref{fig:lat}. The ADC dominates: the raw 12-bit read, which is the path executed inside the timed control loop, averages $60.0\\,\\mu$s and the fastest single raw read never completes sooner than $59.5\\,\\mu$s; the slower calibrated millivolt read ($89.1\\,\\mu$s) is measured for comparison only and never runs inside the loop. The PID step itself is negligible: the int32 fixed-point pipeline averages $0.86\\,\\mu$s and the float32 pipeline $6.8\\,\\mu$s, so the controller occupies at most 10.4\\% (float) or 1.3\\% (int32) of the loop budget. The LEDC PWM write costs $4.2\\,\\mu$s. The total per-step control latency is $T_{lat} = T_{ADC} + T_{PID} + T_{PWM} \\approx 65\\,\\mu$s, meaning the fastest periodic loop this platform can sustain is about $6\\times T_{sw}$ (10\\,$\\mu$s switching period), and useful oversampled loops reach several hundred times $T_{sw}$ (up to $\\approx680\\times$ at N=64). The hardware therefore operates entirely in the sampling regime the simulation identifies as unstable or critically degraded; this is the central constraint that motivates the adaptive controller presented in the final subsection."
             },
             {
               "_type": "Figure",
@@ -624,7 +631,7 @@
           "content": [
             {
               "_type": "Paragraph",
-              "text": "The controlled DC voltage at the setpoint is identical across effective ADC resolutions from 12 down to 6 bits and effective PWM resolutions from 8 down to 4 bits (Fig.~\\ref{fig:effres}): the closed loop holds the mean within $\\pm$18\\,mV in every cell, and the per-cell IAE variation (6.8-8.3) is within the run-to-run noise of the platform. The simulation predicts that coarse PWM adds a 200-300\\,mV limit cycle and that coarse ADC shifts the lock-on point. On the ESP32-S3 these effects do not appear, because the acquisition noise floor is far larger: the averaged read at this schedule carries $\\approx$1.5\\,V rms in the output frame (measured $\\sigma_N \\approx 1.65/\\sqrt{N}$\\,V at the pin, $\\times 24/3.3$ into the output frame, giving $\\approx$1.5\\,V at N=64), and the closed-loop ripple remains at 1.6-1.9\\,V peak-to-peak regardless of resolution. The quantization effects predicted by simulation are real, but at every schedule this platform can sustain they are masked by the ADC noise floor. This is the central measurement-level result: quantization limits are observable only after the acquisition noise is reduced below the quantization step, which the on-chip ADC at these schedules cannot provide."
+              "text": "The controlled DC voltage at the setpoint is identical across effective ADC resolutions from 12 down to 6 bits and effective PWM resolutions from 8 down to 4 bits (Fig.~\\ref{fig:effres}): the closed loop holds the mean within $\\pm$18\\,mV in every cell, and the per-cell IAE variation (6.8-8.3) is within the run-to-run noise of the platform. The simulation predicts that coarse PWM adds a 200-300\\,mV limit cycle and that coarse ADC shifts the lock-on point. On the ESP32-S3 these effects do not appear, because the acquisition noise floor is far larger: the raw 12-bit read at this schedule carries $\\approx$1.5\\,V rms in the output frame (measured $\\sigma_N \\approx 1.65/\\sqrt{N}$\\,V at the pin, $\\times 24/3.3$ into the output frame, giving $\\approx$1.5\\,V at N=64), so even the loop's light EMA-filtered measurement carries 1.6-1.9\\,V peak-to-peak ripple, flat across resolutions. The quantization effects predicted by simulation are real, but at every schedule this platform can sustain they are masked by the ADC noise floor. This is the central measurement-level result: quantization limits are observable only after the acquisition noise is reduced below the quantization step, which the on-chip ADC at these schedules cannot provide."
             },
             {
               "_type": "Figure",
@@ -731,7 +738,7 @@
       "content": [
         {
           "_type": "Paragraph",
-          "text": "The authors thank Tareq Anwar Shikdar for guidance; no external funding was received."
+          "text": "The authors thank Leading University, Sylhet for support and guidance; no external funding was received."
         }
       ]
     }
