@@ -2,3 +2,10 @@ build/
 .pio/
 *.o
 *.elf
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env
+.vscode/
+
