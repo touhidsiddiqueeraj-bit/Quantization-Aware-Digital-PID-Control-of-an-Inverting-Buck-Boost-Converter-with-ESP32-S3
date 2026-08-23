@@ -1,4 +1,84 @@
-# Journal Expansion Plan — Quantization-Aware Adaptive Digital PID with ESP32-S3
+# Journal Expansion Plan — Quantization-Aware Adaptive Digital PID (ESP32-S3 + STM32F103)
+
+## [DONE 2026-08-24] Cross-Platform Software Update (no hardware) — paper is now two-platform
+
+**What shipped (software-only, no wiring):**
+- Title → ``on Two Microcontrollers (ESP32-S3 and STM32F103)''; abstract/keywords/intro/contributions updated (8 contributions, cross-platform).
+- One shared firmware source (`esp32_feas/src/main.cpp`, `#ifdef` hw layer, modes B/H/L/R/S/X/A + new T) — single diff, ponytail.
+- STM32F103 @72MHz measured: Arduino ADC 72.8~$\mu$s / bare-register ADC 4.23~$\mu$s (17$\times$), int32 PID 1.31~$\mu$s (float pure 32.4, float+powf 231.9), Arduino PWM 23.9 / bare 5.88~$\mu$s. ESP32-S3: 60 / 0.86 / 4.2.
+- New Table~\ref{tab:cross} + Fig.~\ref{fig:crosslat} (Arduino vs bare latency) + Fig.~\ref{fig:pidcost} (soft-float tax) + mode~T pacing sweep: F103 floor 26~$\mu$s (2.6$\times$Tsw, inside stable regime) vs ESP32 floor 73~$\mu$s (7.3$\times$, outside). Validates pacing budget; closed-loop still open (jumper missing).
+- \S V renamed ``Platforms'' (plural), new \S V-E/F: cross-platform decomposition + boundary pacing; Discussion/Conclusion rewritten cross-platform; LC circuit (Fig.~\ref{fig:lccross}) included as software-ready, deferred.
+- paper.pdf: 13 pages (was 11), 1.5M, compiles with `TEXINPUTS=.../texflow/data/ieee: pdflatex+bibtex` cycle, 0 undefined refs.
+- Firmware: `esp32_feas/platformio.ini` has `[env:esp32s3]`, `[env:bluepill_f103c8]` (serial, `-Wl,-u,_printf_float`, LOGN=900), `[env:bluepill_bringup]`. `bringup.cpp` kept for bring-up gate.
+- Deferred: LC wiring + closed-loop `R`/`S`/`X`/`A`/`T` on the real plant (firmware ready, needs `PA8→5Ω→100µH→V_filt→LM358→PA1`).
+
+**Next hardware step (when you wire):** PA8 jumper (or full LC) → `PA1→GND` cap, then capture `R`/`S`/`X`/`A` (no re-flash needed — serial commands on current firmware) → LC sweep → paper \S V LC paragraph becomes measured.
+
+---
+
+## [NEW] True Closed-Loop Hardware — LC + LM358 Buffer (ready when wired)
+
+**Status:** `PLANNED — start when hardware is wired` (user will confirm stages 13-16).
+**Diagram:** `results/figures/circuit_lc_buffer.png` + `.svg` (generated 2026-08-22, `f0≈10.7kHz, Q≈1.3`).
+
+### What was requested (exact)
+- **Parts:** 100µH (>100mA), 5Ω (4.7/5.6Ω ok), 2.2µF X7R, LM358 DIP-8, breadboard, ESP32-S3.
+- **Wiring (as specified — not changed):**
+  1. `GPIO2 → 5Ω → 100µH → V_filt`  ;  `V_filt → 2.2µF → GND`
+  2. `V_filt → LM358 pin3 (IN1+);  pin2→pin1 feedback;  pin1 → GPIO1;  pin8→3.3V; pin4→GND;  pins 5,6,7 NC`
+  3. Common GND: ESP GND = breadboard rail = LM358 pin4 = cap GND;  3.3V rail common
+  4. Bring-up: 0%→0V, 50%→1.65V, 75%→clip check; only then run PID
+
+### Why this matters vs current paper
+- Current `paper.tex §V` emulates plant as `Vout=-Vpin·24/3.3` (pin-short, no pole). Discussion already flags this as the limit.
+- **LC gives the cheapest real pole pair:** `f0=1/(2π√LC)≈10.7kHz, Q≈1.3` — damped second-order; DAC→ADC now has L/R dynamics the PID must control.
+- **What it unlocks (ponytail: smallest hardware that proves the loop):**
+  - Real step response & ripple vs sim-predicted 3.5-4×Tsw boundary becomes testable (today 65µs T_lat forces ~6-680×Tsw — fully inside simulated-unstable).
+  - Separates `1/√N` ADC noise floor from plant pole — effective-resolution (§V-B) will finally unmask quantization if LC cuts noise.
+  - Single change that upgrades the paper from "emulated plant" to "measured continuous-time plant" without building a power stage.
+
+### Decisions needed before flashing (answer 2 lines)
+1. **LM358 supply:** keep `pin8=3.3V` (clips ~1.8V at high duty) or `pin8=5V` for full 0-3.3V swing? (ESP stays 3.3V logic)
+2. **Measurement:** scope available or multimeter-only? (decides software ripple logger depth)
+3. **Cap derating:** X7R 2.2µF at 3.3V bias ≈1.5µF effective — still fine; confirm you have 2.2µF (1µF+1µF also ok)
+
+### Execution plan — when you say "hardware ready, go"
+
+**Phase 0 — Gate (you do, 2 min, photo is enough):**
+- Power on quiet → V_filt≈0V, LM358 out tracks.  Fixed PWM 50% → V_filt≈1.65V; 25%/75% spot checks.  Note 75% clip if 3.3V-supplied.
+- Pass gate → I take over firmware (one `pio run --target upload`).
+
+**Phase 1 — Firmware (one file, no new deps, ponytail):**
+- Add `CLOSED_LOOP_LC` flag in `esp32_feas/src/main.cpp`: keep `Kp=0.05 Ki=100 Kd=1e-5 D∈[0.05,0.95]`.
+- Change ADC scale: `Vout=Vpin` domain or `Vref=1.65V` (pin-volts) — one `#define`; keep FS=24V mapping optional for paper continuity.
+- Modes reused: `B` (bench), `L` (latency stays ~60µs), `R` (effective-res now on LC), `S` (N=1/8/32/64 ladder on real LC), `X` (0-200µs injected delay), `A` (adaptive N=8↔64 + dither).  New `fixed-duty sweep` (10/50/90% open-loop for LC validation).
+- `// ponytail: emulated LC, not buck-boost L/R non-min phase; upgrade to real stage if needed`
+
+**Phase 2 — Capture (20-30 min):**
+1. `fixed-duty sweep` → verify LC transfer ≈10kHz LPF.
+2. `S ladder` + `X injected` → updates Table 5 / Fig 10-11 with real poles.
+3. Optional `R` on LC → show quant limit emerges if noise floor drops.
+4. `A adaptive` with step `−? V` → SR/occupancy re-measured on real plant.
+
+**Phase 3 — Analysis & paper (25-40 min):**
+- Logs → `esp32_feas/results/embedded_lc/*` + `results/figures/circuit_lc_buffer` reference.
+- New `paper.tex §V-E bis`: one table + one figure (LC step + ladder); rewrite one Discussion sentence that today promises "future work with external ADC/real stage".
+- Keep `run_study.py` 79 sim runs frozen; LC is new hardware figure, not a sim change.
+
+**Phase 4 — Verify & deliver:**
+- `pdflatex+bibtex` compile, 0 undefined refs, vision-pass Fig LC, `paper.pdf+docx`.
+
+### Risks (short)
+- LM358 3.3V headroom clip at high D — mitigate by 5V supply or clamp `D_MAX`/`Vref` window.
+- Frozen gains may ring on real LC — D-limit already protects; retuned `kp=0.02 ki=0.5` available as in current `S` retune.
+
+### Takeover handshake
+You: wire + gate checks 13-16 pass → message "hardware ready, go"
+Me: generate+flash one `.ino`/`main.cpp` diff + logger → capture → figures → paper
+
+`skipped: PCB / external ADC / real buck-boost — add when LC proves the loop.`
+
+---
 
 ## Target
 - Venue: IJPEDS (IAES, IEEE-style two-column). Frame as IEEE open-access style for now.

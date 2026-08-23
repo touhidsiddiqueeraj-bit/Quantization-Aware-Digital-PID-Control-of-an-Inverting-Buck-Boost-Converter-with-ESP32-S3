@@ -2,15 +2,17 @@
   "_type": "Document",
   "metadata": {
     "_type": "Metadata",
-    "title": "Quantization-Aware Digital PID Control of an Inverting Buck\u2013Boost Converter with ESP32-S3: Measured Latency, Effective-Resolution, and Adaptive Update Management",
+    "title": "Quantization-Aware Digital PID Control of an Inverting Buck–Boost Converter on Two Microcontrollers (ESP32-S3 and STM32F103): Measured Latency, Effective-Resolution, and Adaptive Update Management",
     "author": "Syeda Salsabil Islam Ariya and Jasimul Islam Chowdhury and Hussain Touhid Siddiquee",
     "date": "\\today",
-    "abstract": "Digital control of switching power converters is shaped by three implementation-quantized quantities: the ADC resolution of the sensed output, the DPWM resolution of the commanded duty, and the sampling period at which controller and power stage are synchronized. This paper asks how those three quantities interrelate and whether their predicted effects survive on real hardware. A 79-run switched-model study of an inverting buck-boost converter (Vref = -12 V, fsw = 100 kHz) first isolates each quantizer, locates the critical sampling boundary near 3.5-4x Tsw, and shows the three stages interact super-additively. The same controller is then ported to an ESP32-S3 closed-loop platform whose loop is bound by the on-chip ADC: the raw read takes 60 us, so the fastest achievable loop is about 6x Tsw and useful oversampled loops exceed 500x Tsw, placing the hardware inside the simulation's predicted unstable regime. Measured latency decomposes into T_ADC = 60 us, T_PID = 0.86 us (int32), and T_PWM = 4.2 us; CPU utilization is 1.3%. An effective-resolution sweep shows the 1.6-1.9 V acquisition noise floor masks the quantization effects the simulation predicts at 27-205 mV. A lightweight quantization-aware adaptive controller switches between achievable schedules by a measured error/ripple indicator and activates duty dithering with hysteresis only near the setpoint, reducing controller-update frequency by roughly 84% while holding steady-state error below 60 mV. The three-level validation (continuous simulation, digital simulation, embedded measurement) establishes that sampling period and measured latency are not interchangeable, that quantization limits are masked by hardware noise at achievable schedules, and that resource-aware adaptation is a practical means of recovering performance inside the ADC-bound regime.",
+    "abstract": "Digital control of switching power converters is shaped by three implementation-quantized quantities: ADC resolution, DPWM resolution, and sampling period. A 79-run switched-model study of an inverting buck-boost converter (Vref=-12V, fsw=100kHz) isolates each quantizer, locates the critical boundary near 3.5-4x Tsw, and shows super-additive interaction. The same controller is ported to two platforms sharing one firmware source: ESP32-S3 (240MHz, HW FPU) and STM32F103 Blue Pill (72MHz, no FPU). On ESP32-S3 the loop is ADC-bound (60us, fastest 7.3x Tsw); on STM32F103 the Arduino path is 72.8us but bare-register cuts ADC to 4.23us (17x), giving a silicon floor of 11us and a paced-loop floor of 26us (2.6x Tsw) that crosses the predicted boundary while the ESP32 cannot. A bare-register boundary sweep (mode T) demonstrates pacing at every Ts/Tsw rung. Hardware closed-loop validation with a real LC plant is software-ready and deferred.",
     "keywords": [
       "digital PID control",
       "quantization",
       "buck-boost converter",
       "ESP32-S3",
+      "STM32F103",
+      "cross-platform",
       "adaptive sampling",
       "measurement latency"
     ],
@@ -53,7 +55,7 @@
         },
         {
           "_type": "Paragraph",
-          "text": "The theoretical basis is well established. Peterchev and Sanders derived conditions on ADC/DPWM resolution trade-offs for limit-cycle elimination and introduced digital dither to recover effective DPWM resolution \\cite{peterchev2003}. Peng, Prodi\u0107, Alarc\u00f3n, and Maksimovi\u0107 derived static and dynamic quantization models explaining the origins of limit-cycle oscillations \\cite{peng2007}, and Maksimovi\u0107 and Zane provided the small-signal discrete-time framework used to design digitally controlled converters \\cite{maksimovic2007}. A fuller survey appears in \\cite{liu2009}. On the application side, low-resolution non-uniform ADC quantization has been shown to improve dynamic response \\cite{hu2008}, and the full control loop benefits from predictive structures \\cite{chen2003,bibian2002}."
+          "text": "The theoretical basis is well established. Peterchev and Sanders derived conditions on ADC/DPWM resolution trade-offs for limit-cycle elimination and introduced digital dither to recover effective DPWM resolution \\cite{peterchev2003}. Peng, Prodić, Alarcón, and Maksimović derived static and dynamic quantization models explaining the origins of limit-cycle oscillations \\cite{peng2007}, and Maksimović and Zane provided the small-signal discrete-time framework used to design digitally controlled converters \\cite{maksimovic2007}. A fuller survey appears in \\cite{liu2009}. On the application side, low-resolution non-uniform ADC quantization has been shown to improve dynamic response \\cite{hu2008}, and the full control loop benefits from predictive structures \\cite{chen2003,bibian2002}."
         },
         {
           "_type": "Paragraph",
@@ -494,19 +496,19 @@
               ],
               "rows": [
                 [
-                  "ideal (1\u00d7,16,16)",
+                  "ideal (1×,16,16)",
                   "2.74 / 67.9",
                   "2.66 / 39.6",
                   "2.55 / 28.9"
                 ],
                 [
-                  "good (1\u00d7,10,10)",
+                  "good (1×,10,10)",
                   "2.69 / 28.6",
                   "2.64 / 57.8",
                   "2.52 / 80.6"
                 ],
                 [
-                  "poor (2\u00d7,6,6)",
+                  "poor (2×,6,6)",
                   "5.40 / 28.9",
                   "5.11 / 27.7",
                   "59.3 / 561*"
@@ -593,27 +595,27 @@
                 ],
                 [
                   "T_ADC (raw 12-bit)",
-                  "60.0 \u00b5s avg / 148 \u00b5s max"
+                  "60.0 µs avg / 148 µs max"
                 ],
                 [
                   "T_ADC (calibrated mV)",
-                  "88.6 \u00b5s avg"
+                  "88.6 µs avg"
                 ],
                 [
                   "T_PID (int32 fixed)",
-                  "0.86 \u00b5s avg"
+                  "0.86 µs avg"
                 ],
                 [
                   "T_PID (float32)",
-                  "6.8 \u00b5s avg"
+                  "6.8 µs avg"
                 ],
                 [
                   "T_PWM (LEDC write)",
-                  "4.2 \u00b5s avg"
+                  "4.2 µs avg"
                 ],
                 [
                   "T_lat = T_ADC+T_PID+T_PWM",
-                  "\u224865 \u00b5s"
+                  "≈65 µs"
                 ],
                 [
                   "CPU utilization",
@@ -621,11 +623,11 @@
                 ],
                 [
                   "Fastest periodic loop",
-                  "\u22486 \u00d7 Tsw"
+                  "≈6 × Tsw"
                 ],
                 [
                   "Useful oversampled loop",
-                  "500\u2013680 \u00d7 Tsw"
+                  "500–680 × Tsw"
                 ]
               ],
               "position": "htbp",
