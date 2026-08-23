@@ -201,7 +201,7 @@ The worst configuration is far worse than any individual degradation: $-13.43$\,
 
 Table~\ref{tab:dist} summarizes the six disturbance runs (step at $t=60$\,ms; recovery time $=t_{settle}-60$\,ms). Both healthy controllers reject input and load steps in under 1.5\,ms with negligible IAE. The worst configuration never re-regulates within the observation window: it settles into deep DCM chatter with $>$5\,V of steady-state error, accruing 266\,015 DCM cycles after the input step and 163\,360 after the load step within the 60\,ms post-step window --- far above the 127\,075 cycles the same configuration accrues when undisturbed --- because the loop never settles and keeps crossing the zero-current boundary for the entire window (Fig.~\ref{fig:dist}).
 
-\begin{table}[tbp]
+\begin{table*}[tbp]
 \centering
 \begin{tabular}{l l l l l}
 \toprule
@@ -217,7 +217,7 @@ Worst (8-bit ADC/12-bit PWM, 5$\times$) & Load step & never & 5.0 V / 1.132 & 16
 \end{tabular}
 \caption{Disturbance response (step at $t=60$\,ms).}
 \label{tab:dist}
-\end{table}
+\end{table*}
 
 \begin{figure*}[tbp]
 \centering
