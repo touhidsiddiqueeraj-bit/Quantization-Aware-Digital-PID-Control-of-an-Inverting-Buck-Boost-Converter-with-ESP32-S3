@@ -395,7 +395,25 @@ Mode~T paces the loop at exact Ts/Tsw multiples (1$\times$ to 5$\times$, i.e., 1
 \end{figure}
 
 \subsection{Hardware LC Bring-up (330\,$\mu$H + 2.2\,$\mu$F, $f_0\approx5.9$\,kHz) as wired}\label{sec:hwlc}
-As wired (Fig.~\ref{fig:lccross} with 330\,$\mu$H as available, 5\,$\Omega$+330\,$\mu$H+2.2\,$\mu$F, $f_0\approx5.9$\,kHz, $Q\approx2.45$; LM358 follower powered from 5\,V for full swing), hardware bring-up via Mode~H shows the LC-averaged transfer: 5\%$\to$0.12\,V, 50\%$\to$1.51\,V ($-10.97$\,V in the paper's $-24$--$0$\,V frame), 95\%$\to$3.20\,V ($-23.3$\,V), with acquisition mean $1.53$\,V and $\sigma\approx0.085$\,V at $N=1$ ($\sigma\approx1.65/\sqrt{N}$ as in \S V-C). Mode~T (paced, int32, frozen gains $K_p=0.05$, $K_i=100$, $K_d=10^{-5}$) on the LC still reports window-clip $t_{settle}\approx447$\,ms (6000$\times T_{sw}$) and ripple $\approx11$\,V at every rung $1$--$5\times$ ($N_{\rm DCM}=0$ at $1\times$ as the plant never reaches the $V_{ref}$ band), exactly as the frozen-gain re-sim at $C=2.2\mu$F predicts (Fig.~\ref{fig:lcmismatch}: $330\mu$H never settles even at $1\times$). Mode~S (ADC-bound, $N=1/8/32/64$, EMA $\alpha=0.08$) with the same LC settles: frozen gains at $N=1$ ($73\mu$s, $7.3\times T_{sw}$) give $t_{settle}=3.6$\,ms, $|e_{ss}|=1$\,mV, ripple $479$\,mV; retuned $K_p=0.02$ gives $4.5$\,ms. The comparison isolates the implementation effect already noted: single-raw reads (Mode~T) plus frozen gains cannot regulate the LC, while averaged reads plus EMA (Mode~S) can, even though both run at $\approx73\mu$s. Adaptive Mode~A on the LC ($6$\,s, $N=8\leftrightarrow64$) spends $96.1\%$ slow, $3.9\%$ fast, $0\%$ dithering, $S_R=0.98$ (vs $0.84$ on the surrogate), confirming the resource-aware trade-off transfers to the LC when averaging is present. Full LC logs are in \texttt{esp32\_feas/results/embedded/} (new capture with 330\,$\mu$H;Figs.~\ref{fig:delayboundary}--\ref{fig:lcmismatch} updated to include the $330\mu$H re-sim).
+As wired (Fig.~\ref{fig:lccross} with 330\,$\mu$H as available, 5\,$\Omega$+330\,$\mu$H+2.2\,$\mu$F, $f_0\approx5.9$\,kHz, $Q\approx2.45$; LM358 follower powered from 5\,V for full swing), hardware bring-up via Mode~H shows the LC-averaged transfer: 5\%$\to$0.13\,V, 50\%$\to$1.55\,V ($-11.3$\,V in the paper's $-24$--$0$\,V frame, $1.51$\,V in the prior 5\,V run), 95\%$\to$3.20\,V ($-23.3$\,V), with acquisition mean $1.52$--$1.53$\,V and $\sigma\approx0.057$\,V at $N=1$ ($\sigma\approx1.65/\sqrt{N}$ as in \S V-C; $N=64$ $\sigma\approx0.007$\,V). Mode~T (paced, int32, frozen gains $K_p=0.05$, $K_i=100$, $K_d=10^{-5}$) on the LC still reports window-clip $t_{settle}\approx424$--$447$\,ms (6000$\times T_{sw}$) and ripple $\approx8$--$12$\,V at every rung $1$--$5\times$ ($N_{\rm DCM}=0$ at $1\times$ as the plant never reaches the $V_{ref}$ band), exactly as the frozen-gain re-sim at $C=2.2\mu$F predicts (Fig.~\ref{fig:lcmismatch}: $330\mu$H never settles even at $1\times$). The full ADC-bound ladder on the same LC (Mode~S, $N=1/8/32/64$, EMA $\alpha=0.08$, Table~\ref{tab:lc_ladder}) does settle, closing the reviewer gap noted in the prior draft that only $N=1$ was reported:
+
+\begin{table}[tbp]
+\centering
+\begin{tabular}{l l l l}
+\toprule
+$N$ (period) & Frozen $t_{settle}$ / ripple & Retuned $t_{settle}$ / ripple & Note \\
+\midrule
+1 (73\,ms, $7.3\times$) & 3.6\,ms / 479\,mV & 4.5\,ms / 623\,mV & fast schedule, single raw vs retuned $K_p=0.02$ \\
+8 (864\,ms, $86\times$) & 19.9\,ms / 172\,mV & 26.0\,ms / 185\,mV & $K_iT_s$ held $3.4\times10^{-3}$ \\
+32 (3.37\,ms, $337\times$) & 50.6\,ms / 207\,mV & 101\,ms / 119\,mV & deeper averaging \\
+64 (6.84\,ms, $684\times$) & 75.3\,ms / 156\,mV & 205\,ms / 103\,mV & slowest, lowest ripple \\
+\bottomrule
+\end{tabular}
+\caption{Full $N=1/8/32/64$ ladder on the as-wired LC 330\,$\mu$H (Mode~S, $N=5000$ reps for $L$, $N=1/8/32/64$ for $S$; $t_{settle}$ window-clip $447$\,ms in Mode~T vs $3.6$--$75$\,ms here). Frozen gains are the paper's $K_p=0.05$; retuned is $K_p=0.02$, $K_i$ scaled so $K_iT_s=3.4\times10^{-3}$. All settle (contrast Mode~T never), confirming single-raw vs averaged implementation effect at the same $\approx73\mu$s.}
+\label{tab:lc_ladder}
+\end{table}
+
+Mode~T vs Mode~S at the same $\approx73\mu$s isolates the implementation effect: single-raw reads (Mode~T) plus frozen gains cannot regulate the LC, while averaged reads plus EMA (Mode~S) can. Adaptive Mode~A on the LC ($6$\,s, $N=8\leftrightarrow64$) spends $96.1\%$ slow, $3.9\%$ fast, $0\%$ dithering, $S_R=0.98$ (vs $0.84$ on the surrogate, Table~\ref{tab:cross} vs \ref{tab:lc_ladder}), confirming the resource-aware trade-off transfers to the LC when averaging is present. Full LC logs are in \texttt{esp32\_feas/results/embedded/} (new capture with 330\,$\mu$H; Figs.~\ref{fig:delayboundary}--\ref{fig:lcmismatch} updated to include the $330\mu$H re-sim) and in \texttt{results/stm32/STM32\_S.log} for STM32 bare.
 
 \section{Delay, Noise, and Gain Sensitivity (Audit Extensions)}\label{sec:delaynoise}
 
