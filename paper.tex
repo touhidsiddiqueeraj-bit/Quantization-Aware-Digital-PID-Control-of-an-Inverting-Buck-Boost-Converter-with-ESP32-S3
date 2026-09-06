@@ -266,6 +266,13 @@ Two platforms share one firmware source (\texttt{esp32\_feas/src/main.cpp}, \tex
 \label{fig:lccross}
 \end{figure*}
 
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=0.95\columnwidth]{Hardware/testedcircuit.jpeg}
+\caption{As-wired protoboard as tested (330\,$\mu$H, $2.2\,\mu$F, LM358, $5\,\Omega$). Pinout handwritten on board: Blue—GND, White—5\,V, Grey—GPIO1/PA1 (ADC), Orange—GPIO2/PA8 (PWM). The same board was used for ESP32-S3 (GPIO1/2) and STM32F103 (PA1/PA8) captures in \S\ref{sec:hwlc}, Table~\ref{tab:cross} and Table~\ref{tab:lc_ladder} (photo: \texttt{Hardware/testedcircuit.jpeg}).}
+\label{fig:protoboard}
+\end{figure}
+
 \subsection{Measured Control-Loop Latency}
 
 Table~\ref{tab:emb} reports the measured split of the control loop, timed with the CPU cycle counter at 240\,MHz and illustrated in Fig.~\ref{fig:lat}. The ADC dominates: the raw 12-bit read, which is the path executed inside the timed control loop, averages $60.0\,\mu$s and the fastest single raw read never completes sooner than $59.5\,\mu$s; the slower calibrated millivolt read ($89.1\,\mu$s) is measured for comparison only and never runs inside the loop. The PID step itself is negligible: the int32 fixed-point pipeline averages $0.86\,\mu$s and the float32 pipeline $6.8\,\mu$s, so the controller occupies at most 10.4\% (float) or 1.3\% (int32) of the loop budget. The LEDC PWM write costs $4.2\,\mu$s. The total per-step control latency is $T_{lat} = T_{ADC} + T_{PID} + T_{PWM} \approx 65\,\mu$s; the measured fastest periodic loop is slightly longer ($73\,\mu$s at N=1), the $\approx 8\,\mu$s difference being timer-tick and scheduler overhead not captured by the three timed components, so the fastest sustainable loop is about $7.3\times T_{sw}$ (10\,$\mu$s switching period), and useful oversampled loops reach several hundred times $T_{sw}$ (up to $\approx 680\times$ at N=64). The hardware therefore operates entirely in the sampling regime the simulation identifies as unstable or critically degraded; this is the central constraint that motivates the adaptive controller presented in the final subsection.
