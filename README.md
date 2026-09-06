@@ -125,14 +125,31 @@ Captures are post-processed by `esp32_feas/host/analyze.py` → `results/embedde
 
 ### Rebuild the paper
 
-Compiled via TeXFlow/IEEE Access class (needs the bundled Formata fonts). For local LaTeX:
+Compiled via TeXFlow/IEEE Access class. The IEEE Access template fonts
+(Formata/GiovanniStd) and class files are vendored in `texflow/data/ieee/`
+(and mirrored in the repo root), so a plain local LaTeX works:
 
 ```bash
-TFMFONTS="./texflow/data/ieee:" TEXINPUTS="./texflow/data/ieee:" TEXFONTS="./texflow/data/ieee:" \
 pdflatex paper && bibtex paper && pdflatex paper && pdflatex paper
 ```
 
+If your TeX install cannot find its trees (kpathsea warnings), pin them:
+
+```bash
+TEXMFCNF=/etc/texmf/web2c: TEXMFROOT=/usr/share pdflatex paper
+```
+
 Or via TeXFlow MCP: `texflow render compile`.
+
+The conference paper rebuilds with `pdflatex conference && bibtex conference && pdflatex conference && pdflatex conference`;
+the IJPEDS submission (`ijpeds.tex`, official `iaesarticle` class) with
+`pdflatex ijpeds && bibtex ijpeds && pdflatex ijpeds && pdflatex ijpeds`.
+
+### Verify the numbers
+
+`python verify_claims.py` recomputes every numeric claim in the papers from the
+CSVs/logs and exits non-zero on any mismatch (165 checks). `AUDIT.md` documents
+the full claim → source map and the inconsistency fixes applied on 2026-09-02.
 
 ---
 

@@ -33,7 +33,9 @@ def load_L():
     out = {}
     for r in rows:
         if r[1] == "L":
-            out[r[2]] = dict(min_us=float(r[3]), avg_us=float(r[4]), max_us=float(r[5]))
+            # firmware prints ns (cycles*1000/240); convert to us
+            out[r[2]] = dict(min_us=float(r[3]) / 1e3, avg_us=float(r[4]) / 1e3,
+                             max_us=float(r[5]) / 1e3)
     return out      # keys: adc_mv, adc_raw, comp_f32, comp_i32, pwm
 
 # ---------------- mode R ----------------
@@ -143,19 +145,20 @@ def main():
         print(f"{k}={v:.5g}" if isinstance(v, float) else f"{k}={v}")
 
     # ---------------- figures ----------------
-    # fig_v2_latency: breakdown bars
-    fig, ax = plt.subplots(figsize=(4.6, 2.6))
+    # fig_v2_latency: breakdown bars — leave left margin for ylabel/title M
+    fig, ax = plt.subplots(figsize=(5.0, 2.8))
     keys = ["adc_raw", "adc_mv", "comp_i32", "comp_f32", "pwm"]
     labs = ["ADC raw", "ADC mV", "PID int32", "PID float", "PWM write"]
     vals = [L[k]["avg_us"] for k in keys]
     colors = ["#49a9c8", "#8ec4d4", "#1b9e77", "#7570b3", "#d95f02"]
     ax.bar(range(len(vals)), vals, color=colors)
     for i, v in enumerate(vals):
-        ax.text(i, v + 3, f"{v:.1f}", ha="center", fontsize=8)
+        ax.text(i, v * 1.15 + 0.02, f"{v:.2f}" if v < 10 else f"{v:.1f}", ha="center", fontsize=8)
     ax.set_xticks(range(len(vals))); ax.set_xticklabels(labs, fontsize=8)
     ax.set_ylabel("avg latency (µs)"); ax.set_yscale("log")
-    ax.set_title("Measured control-loop latency breakdown (ESP32-S3, 240 MHz)")
-    fig.tight_layout(); fig.savefig(os.path.join(OUT, "fig_v2_latency.png"), dpi=200); plt.close(fig)
+    ax.set_title("Measured control-loop latency breakdown (ESP32-S3, 240 MHz)", pad=8)
+    fig.tight_layout(pad=0.8); fig.subplots_adjust(left=0.14, right=0.98, top=0.88, bottom=0.22)
+    fig.savefig(os.path.join(OUT, "fig_v2_latency.png"), dpi=220, bbox_inches="tight", pad_inches=0.05); plt.close(fig)
 
     # fig_v2_effres: IAE and ss_err vs ADC bits (fixed PWM 8)
     fig, ax = plt.subplots(1, 2, figsize=(8, 2.8))
@@ -194,7 +197,7 @@ def main():
     xd = [r["dly_us"] for r in X]
     ax.plot(xd, [r["iae"] for r in X], "o-", color="#7570b3")
     ax.set_xlabel("injected compute delay (µs)"); ax.set_ylabel("IAE")
-    ax.set_title("Latency injection at raw schedule (retuned, ki×ts const)")
+    ax.set_title("Latency injection at raw schedule ($k_iT_s$ const)", fontsize=10)
     fig.tight_layout(); fig.savefig(os.path.join(OUT, "fig_v2_latinj.png"), dpi=200); plt.close(fig)
 
     # fig_v2_adaptive: error + mode timeline
@@ -213,8 +216,9 @@ def main():
     for a in ax[:2]:
         a.axvline(2.5, color="tab:red", ls="--", lw=1)
     ax[1].text(2.52, 0.05, "set-point step", fontsize=8, color="tab:red")
-    fig.suptitle(f"Adaptive schedule+dithering on ESP32-S3 (SR=$1-f_{{avg}}/f_{{fast}}$ = "
-                 f"{stats[15][1]:.2f}, slow mode {stats[13][1]:.0f}%)")
+    sd = dict(stats)
+    fig.suptitle(f"Adaptive schedule+dithering on ESP32-S3 (SR={sd['adaptive_SR']:.2f},"
+                 f" slow mode {sd['adaptive_slow_pct']:.1f}%)", fontsize=11)
     fig.tight_layout(); fig.savefig(os.path.join(OUT, "fig_v2_adaptive.png"), dpi=200); plt.close(fig)
 
     # adaptive CSVs for the paper

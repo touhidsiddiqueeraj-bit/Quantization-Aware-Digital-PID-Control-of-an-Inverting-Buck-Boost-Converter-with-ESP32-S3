@@ -1,0 +1,14 @@
+quantity,ESP32_S3_240MHz_us,STM32F103_72MHz_us,notes
+T_ADC_Arduino_raw,60.0,72.8,mean N=5000; STM32 max 97us first sample
+T_ADC_Arduino_mV,89.1,72.7,calibrated path
+T_ADC_bare,NA,11.01,single ADC1 sample 1.5cyc + 12.5cyc conv + 4us t_STAB wait; ideal 4.23us without wait
+T_PID_int32,0.86,1.31,fixed-point velocity PID
+T_PID_float_pure,6.8,32.4,hardware FPU vs soft-float
+T_PID_float_quantizer,6.8,231.9,powf soft-float dominates
+T_PWM_Arduino,4.2,23.9,LEDC vs HAL analogWrite+TIM1 reconfig
+T_PWM_bare,NA,5.88,direct TIM1_CCR1 write
+Tlat_Arduino_int32,65,98,sum ADC+PID+PWM
+Tlat_bare_int32,65,18.2,11.01+1.31+5.88; ideal 11.4 without t_STAB wait
+fastest_paced_loop_jumper,73,26,measured mode-T floor jumper surrogate
+fastest_paced_loop_LC330,70.8,39.8,measured mode-T floor LC 330uH+2.2uF (this wiring)
+r_DCM_assert,<=1,<=1,per-period cap

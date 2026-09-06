@@ -1,0 +1,9 @@
+requested_Ts_Tsw,requested_us,ESP32_S3_achieved_us,STM32_bare_achieved_us,notes
+1,10,73,26,floor-limited both; STM32 26 = 11.4 + overhead
+1.5,15,73,26,floor-limited
+2,20,73,26,floor-limited
+2.5,25,73,26,floor-limited
+3,30,73,30,STM32 reaches
+3.5,35,73,35,STM32 reaches
+4,40,73,40,STM32 reaches
+5,50,73,50,STM32 reaches

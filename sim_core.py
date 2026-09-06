@@ -72,11 +72,16 @@ class ContinuousPID:
 
 
 class BuckBoost:
-    """Fixed-step Euler switched-model simulation, discrete controller."""
+    """Fixed-step Euler switched-model simulation, discrete controller.
+
+    Optional audit knobs (default 0 = original zero-delay, noiseless model):
+      comp_delay_s: computational delay before a computed duty takes effect
+      adc_noise_sigma: Gaussian sigma (V, output-frame) added to vC before ADC
+    """
 
     def __init__(self, vin=12.0, l=100e-6, c=220e-6, fsw=100e3, r=10.0,
                  ts_mult=1, adc_bits=16, pwm_bits=16, adc_fs=24.0,
-                 pid=None, dt_div=200):
+                 pid=None, dt_div=200, comp_delay_s=0.0, adc_noise_sigma=0.0):
         self.vin, self.l, self.c, self.fsw, self.r = vin, l, c, fsw, r
         self.ts = ts_mult / fsw
         self.adc_bits, self.pwm_bits, self.adc_fs = adc_bits, pwm_bits, adc_fs
@@ -85,6 +90,9 @@ class BuckBoost:
         self.pid = pid or DigitalPID(0.1, 2000, 5e-5, self.ts)
         self.dt = 1.0 / (fsw * dt_div)
         self.steps_per_cycle = max(1, round(1.0 / (fsw * self.dt)))
+        self.comp_delay_s = comp_delay_s
+        self.adc_noise_sigma = adc_noise_sigma
+        self._delay_steps = int(round(comp_delay_s / self.dt)) if comp_delay_s > 0 else 0
 
     def run(self, t_end, vref, vmeas_scale=1.0, dist=None, log_div=40, t0=0.0):
         """dist: callable(t, iL, vC) -> (new_vin, new_r) applied at each step."""
@@ -96,27 +104,40 @@ class BuckBoost:
         vin = self.vin
         r = self.r
         d = pid.d
+        # delayed-duty queue: (apply_k, duty) — ponytail: list is tiny (delay ≤7 Ts)
+        pending = []  # sorted by apply_k
+        d_next = pid.d  # duty to apply after delay
         # decimated logs
         step = max(1, self.steps_per_cycle // log_div)
         t_log, il_log, vc_log, d_log = [], [], [], []
-        dcm_cycles = 0
+        dcm_periods = 0
+        entered_dcm = False
         cycle_idx = 0
         ton = 0
         for k in range(n):
             t = t0 + k * self.dt
             if dist is not None:
                 vin, r = dist(t, vin, r)
+            # apply any delayed duty whose time has come (before cycle start)
+            if pending and k >= pending[0][0]:
+                # latest due duty wins
+                due = [duty for ak, duty in pending if k >= ak]
+                d_next = due[-1]
+                pending = [(ak, duty) for ak, duty in pending if k < ak]
             # PWM: duty quantized, applied at start of each switching cycle
             if cycle_idx == 0:
-                d = quantize_abs(pid.d, self.pwm_bits, 1.0) if not self.pwm_ideal else pid.d
-                d = min(D_MAX, max(D_MIN, d))
+                d_eff = quantize_abs(d_next, self.pwm_bits, 1.0) if not self.pwm_ideal else d_next
+                d = min(D_MAX, max(D_MIN, d_eff))
                 ton = round(self.steps_per_cycle * d)
+                entered_dcm = False
             off = cycle_idx >= ton
             if off:
                 iL += self.dt * (vC / self.l)
                 if iL <= 0.0:
                     iL = 0.0  # zero-current boundary (diode reverse-blocks)
-                    dcm_cycles += 1
+                    if not entered_dcm:
+                        dcm_periods += 1
+                        entered_dcm = True
                     vC += self.dt * (-vC / (r * self.c))
                 else:
                     vC += self.dt * (-(iL + vC / r) / self.c)
@@ -125,16 +146,26 @@ class BuckBoost:
                 vC += self.dt * (-vC / (r * self.c))
             # controller update at sample instants
             if k % int(round(self.ts / self.dt)) == 0:
-                vmeas = quantize_abs(vC, self.adc_bits, self.adc_fs) if not self.adc_ideal else vC
+                # acquisition noise (output-frame) before quantization
+                vc_noisy = vC + (np.random.randn() * self.adc_noise_sigma if self.adc_noise_sigma > 0 else 0.0)
+                vmeas = quantize_abs(vc_noisy, self.adc_bits, self.adc_fs) if not self.adc_ideal else vc_noisy
                 pid.step(vmeas, vref)
+                # schedule duty effect after computational delay
+                if self._delay_steps > 0:
+                    pending.append((k + self._delay_steps, pid.d))
+                else:
+                    d_next = pid.d
             cycle_idx = (cycle_idx + 1) % self.steps_per_cycle
             if k % step == 0:
                 t_log.append(t)
                 il_log.append(iL)
                 vc_log.append(vC)
                 d_log.append(d)
+        # ponytail: per-period cap — at most one DCM event per switching period
+        n_sw = int(round(t_end * self.fsw))
+        assert dcm_periods <= n_sw + 1, f"DCM {dcm_periods} > N_sw {n_sw}"
         return SimResult(np.array(t_log), np.array(il_log), np.array(vc_log),
-                         np.array(d_log), dcm_cycles)
+                         np.array(d_log), dcm_periods)
 
     def run_continuous(self, t_end, vref, dist=None, log_div=40, t0=0.0, pid=None):
         """Run with a continuous (analog) controller updated at every dt."""
@@ -147,7 +178,8 @@ class BuckBoost:
         r = self.r
         step = max(1, self.steps_per_cycle // log_div)
         t_log, il_log, vc_log, d_log = [], [], [], []
-        dcm_steps = 0
+        dcm_periods = 0
+        entered_dcm = False
         cycle_idx = 0
         ton = 0
         d = pid.d
@@ -158,12 +190,15 @@ class BuckBoost:
             if cycle_idx == 0:
                 d = pid.d
                 ton = round(self.steps_per_cycle * d)
+                entered_dcm = False
             off = cycle_idx >= ton
             if off:
                 iL += self.dt * (vC / self.l)
                 if iL <= 0.0:
                     iL = 0.0
-                    dcm_steps += 1
+                    if not entered_dcm:
+                        dcm_periods += 1
+                        entered_dcm = True
                     vC += self.dt * (-vC / (r * self.c))
                 else:
                     vC += self.dt * (-(iL + vC / r) / self.c)
@@ -177,8 +212,10 @@ class BuckBoost:
                 il_log.append(iL)
                 vc_log.append(vC)
                 d_log.append(pid.d)
+        n_sw = int(round(t_end * self.fsw))
+        assert dcm_periods <= n_sw + 1, f"DCM {dcm_periods} > N_sw {n_sw}"
         return SimResult(np.array(t_log), np.array(il_log), np.array(vc_log),
-                         np.array(d_log), dcm_steps)
+                         np.array(d_log), dcm_periods)
 
     def run_open_loop(self, t_end, d, t_settle_frac=0.5):
         """Open-loop run at fixed duty; returns the CCM steady-state window."""
